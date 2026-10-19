@@ -1,32 +1,74 @@
 # ads-auth
 
-Shared accounts, sessions, usage events, statistics page, data-handling (About) page,
-housekeeping, startup preflight, and operator CLI for Austin Data Solutions (ADS) Streamlit apps.
+Austin Data Solutions (ADS) builds small Streamlit apps for its clients. Each one needs the same
+basic plumbing: people sign in with their own account, a session ends after a while, the app keeps
+a simple record of how often it is used, and managers can see those numbers and read a plain
+description of what the app stores. This package provides all of that once, so no app has to build
+and maintain its own copy.
 
-Import name `ads_auth`, distribution name `ads-auth`. Python 3.12 or newer. Runtime dependencies:
-Werkzeug 3.1 (password hashes in a format the other ADS apps share), tzdata, Streamlit 1.42 or newer,
-pandas. The package is tested against Streamlit 1.45.1, 1.50.0, and the current release.
+The package is called `ads-auth` when you install it and `ads_auth` when you import it. It needs
+Python 3.12 or newer. It depends on Werkzeug (for password hashes in the format the ADS apps share),
+tzdata (for time zones), Streamlit 1.42 or newer, and pandas. It is tested against Streamlit 1.45.1,
+Streamlit 1.50.0, and the current release.
 
-## What is in it
+## What the package does
 
-| Module | Purpose | 
+- **Accounts and sign-in.** Each person has a username and a password. Passwords are stored as
+  hashes, never as plain text. Five failed attempts within fifteen minutes lock the account until
+  the window passes. A signed-in session lasts eight hours. Every account has a role, which is
+  `user`, `manager`, or `admin`. An administrator can give someone a temporary password, which must
+  be changed at first sign-in. Accounts can be imported from another app that uses this package.
+- **Usage records.** The app writes one row each time something worth counting happens: a sign-in,
+  a failed sign-in, a sign-out, and whichever of its own actions the app chooses to record, such as
+  an upload. A row holds only the time, the account name, and the kind of event. It never holds
+  what the person typed, uploaded, or searched for. Rows older than thirteen months are deleted
+  automatically.
+- **A Usage statistics page.** Managers and administrators can see how many people were active in
+  each week and each month, totals for each person, and can download the figures as CSV files. One
+  of those files has the same four columns in every app, so exports from different apps can be
+  combined into one spreadsheet.
+- **An About page.** The app points the package at its own data-handling document, and the About
+  page shows that document to users exactly as written.
+- **Housekeeping.** Once a day the package makes a backup of the database, keeping the seven most
+  recent copies, and removes usage rows that have passed the retention period. An app can add one
+  housekeeping task of its own to the same daily pass.
+- **Startup checks.** Before the app begins serving, the package confirms that its settings are
+  valid, that sign-in has not been switched off on a hosted server, that the data folder can be
+  written to, and that the database is up to date.
+- **A command line for operators.** There are commands to create an account, set a password, change
+  a role or a display name, deactivate or reactivate an account, delete an account, unlock an
+  account, list accounts, import accounts, back up or restore the database, remove old usage rows,
+  and export usage rows. An app can add commands of its own.
+
+Everything except the Streamlit screens is plain Python. Those modules import no Streamlit and
+read or write no files when they are imported, so they can be tested without a running app.
+
+## Where things live
+
+| Module | What it holds |
 |---|---|
-| `ads_auth.settings` | `AppSettings`, the contract an app supplies (below) |
-| `ads_auth.db` | SQLite connections and versioned, idempotent migrations |
-| `ads_auth.models`, `hashing`, `policy`, `store` | users, roles, Werkzeug hashes, lockout, 8-hour sessions, temporary passwords, import from another ADS app's `users.db` |
-| `ads_auth.usage.events`, `usage.reports` | usage events (timestamp, account, event type only), 13-month retention, weekly and monthly active users, the four-column `ts_utc,app,username,event` export |
-| `ads_auth.ui.gate`, `ui.account` | `require_login`, `render_sidebar`, logout, password-change forms |
-| `ads_auth.ui.reports`, `ui.about` | the Usage statistics page (managers and admins) and the About page that renders the app's disclosure file |
-| `ads_auth.maintenance` | daily backup (seven kept), event pruning, a daemon loop, and a hook for one app-specific task |
-| `ads_auth.preflight` | startup checks: settings valid, auth not disabled on Render, data dir writable, migrations applied, `serving.lock` written |
-| `ads_auth.cli` | `create-user`, `set-password`, `set-role`, `set-name`, `deactivate-user`, `reactivate-user`, `delete-user`, `unlock-user`, `list-users`, `import-users`, `backup-db`, `restore-db`, `prune-events`, `export-events`, plus app-supplied commands |
+| `ads_auth.settings` | `AppSettings`, the object an app fills in to describe itself. The next section explains it. |
+| `ads_auth.db` | Opening the SQLite database and applying schema changes. The changes are numbered and safe to apply more than once. |
+| `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
+| `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the weekly and monthly active-user figures, and the CSV exports. |
+| `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
+| `ads_auth.ui.reports`, `ui.about` | The Usage statistics page and the About page. |
+| `ads_auth.maintenance` | The daily backup, the removal of old usage rows, the loop that runs them in the background, and the hook for an app's own task. |
+| `ads_auth.preflight` | The startup checks. When they pass, a `serving.lock` file is written so operator commands know the app is running. |
+| `ads_auth.cli` | The operator commands listed above, plus any the app adds. |
 
-Everything outside `ads_auth.ui` imports no Streamlit and does no I/O at import time.
+## What an app has to provide
 
-## What an app supplies
+The app describes itself to the package in one settings object called `AppSettings`. It holds the
+facts the package cannot know on its own: the app's short name, the title to show on the sign-in
+screen, where the data folder is, where the data-handling document is, whether sign-in is required,
+and which actions the app records.
 
-One `AppSettings` object. Instantiate it directly, or subclass it as a keyword-only frozen dataclass
-to add the app's own fields.
+The simplest way to provide it is to create an `AppSettings` directly with those values. Most apps
+instead define their own settings class that starts from `AppSettings` and adds the app's own
+fields, such as an API key, so that all of the app's configuration lives in one object. The example
+below does that. The decorator line above the class makes the object read-only once created and
+requires every value to be passed by name; copy it as it is.
 
 ```python
 from dataclasses import dataclass
@@ -35,23 +77,47 @@ from ads_auth import AppSettings, auth_mode_from_environ, exclude_users_from_env
 
 @dataclass(frozen=True, kw_only=True)
 class Settings(AppSettings):
-    app_name: str = "example-app"                # `app` column in exports; CSV download prefix
-    title: str = "Example App"                   # sign-in screen title
+    app_name: str = "example-app"
+    title: str = "Example App"
     disclosure_path: Path = REPO_ROOT / "DATA_HANDLING.md"
     usage_exclude_users: tuple[str, ...] = ("ops-test",)
-    events: tuple[str, ...] = ("upload", "process", "download")   # the actions this app records
-    api_key: str = ""                            # the app's own fields
+    events: tuple[str, ...] = ("upload", "process", "download")
+    api_key: str = ""                            # one of the app's own fields
 
 settings = Settings(data_dir=Path(environ["DATA_DIR"]), auth_mode=auth_mode_from_environ(environ),
                     is_render=environ.get("RENDER", "").lower() == "true")
 ```
 
-The app also keeps, in its own repository:
+The fields mean the following.
 
-- `DATA_HANDLING.md` (or whatever `disclosure_path` points at): the disclosure its users read on the About page.
-- `manage.py`: a wrapper over `ads_auth.cli.main(load_settings=..., commands=...)`.
-- `scripts/preflight.py`: a wrapper over `ads_auth.preflight.run(lambda: load_settings(...))`.
-- Its router: register the package pages under the names the package links to (`app`, `about`, `reports`).
+- `app_name` is a short, lowercase name for the app. It appears in the `app` column of the usage
+  export and at the start of the CSV file names, so exports from different apps can be told apart.
+- `title` is the heading on the sign-in screen.
+- `data_dir` is the folder that holds the database and the backups. On a hosted server this is the
+  persistent disk.
+- `disclosure_path` is the app's data-handling document, which the About page shows as written.
+- `auth_mode` is `required` normally, or `disabled` for local development only. The package refuses
+  to run with sign-in disabled on a hosted server.
+- `is_render` is true when the app is running on Render, the hosting service the ADS apps use.
+- `usage_exclude_users` lists accounts, such as test accounts, that the Usage statistics page leaves
+  out unless a manager puts them back.
+- `events` lists the actions the app records. The section on recording what people do explains how
+  to choose them. Two related fields, `activity_events` and `definitions`, are explained there too.
+- `pages` is filled in by the app's router, as shown below, so the package's pages can link to each
+  other without knowing anything about the app.
+
+The helper `auth_mode_from_environ` reads the `AUTH_MODE` environment variable and checks it, and
+`exclude_users_from_environ` reads a comma-separated `USAGE_EXCLUDE_USERS` variable.
+
+Besides the settings object, the app keeps a few things in its own repository:
+
+- Its data-handling document (`DATA_HANDLING.md`, or whatever `disclosure_path` points at). This is
+  what users read on the About page, so it is written for them.
+- `manage.py`, a short script that calls `ads_auth.cli.main` with the app's settings, so operators
+  can run the account and backup commands.
+- `scripts/preflight.py`, a short script that calls `ads_auth.preflight.run` before the app starts.
+- Its router, which registers the package's pages under the names the package expects: `app` for
+  the app's own main page, `about` for the About page, and `reports` for the Usage statistics page.
 
 ```python
 # app.py
@@ -60,10 +126,10 @@ from ads_auth.ui import about, reports
 from ads_auth.ui.gate import log, render_sidebar, require_login
 
 def main_page():
-    user = require_login(st, settings)
+    user = require_login(st, settings)          # shows the sign-in screen until someone signs in
     render_sidebar(st, settings, user, show_reports=user.has_role("manager"))
     ...
-    log(settings, "search", user)
+    log(settings, "upload", user)               # record that this person uploaded something
 
 def run():
     db.migrate(settings.db_path)
@@ -73,52 +139,63 @@ def run():
     st.navigation(list(settings.pages.values()), position="hidden").run()
 ```
 
-`tests/demo_app.py` is the smallest complete consumer and is what the package's gate tests run.
+`tests/demo_app.py` is the smallest complete app that uses the package. The package's own sign-in
+tests run against it, and it is a good starting point for a new app.
 
-Housekeeping: `maintenance.start_background(data_dir, db_path, extra=task)` runs the generic pass
-(backup if due, prune events) and then `task(now)`, whose returned mapping is merged into the pass
-result, for example a check that removes expired app data on schedule.
+To add a housekeeping task, pass it to `maintenance.start_background(data_dir, db_path, extra=task)`.
+The package runs its daily pass (back up if due, remove old usage rows) and then calls `task(now)`.
+Whatever mapping the task returns is added to the pass's result, which is useful for a check that,
+for example, removes expired app data on a schedule.
 
-CLI extensions: pass `commands=[Command(name, handler, help, arguments)]` to `cli.main`; the handler
-receives the `Cli` instance (`settings`, `out`, `store`, `refuse_if_serving(force)`) and the parsed
-arguments.
+To add operator commands, pass `commands=[Command(name, handler, help, arguments)]` to `cli.main`.
+The handler receives the `Cli` object, which gives it the settings, the output function, the account
+store, and `refuse_if_serving(force)`, a guard that stops a command from running while the app is
+serving unless the operator insists.
 
-## Event vocabulary
+## Recording what people do
 
-The package owns three core event names: `login`, `login_failed`, and `logout`. Every other name is
-the app's, declared as `events` on its settings object (lowercase slugs, in the order the statistics
-page and CSV exports show them). `log(settings, name, user)` accepts a core name or a declared one
-and rejects anything else. Event rows hold timestamp, account, and event type only, never search
-terms, file names, or content.
+The package itself records three kinds of event: `login`, `login_failed`, and `logout`. Everything
+else is up to the app, which lists its own event names in the `events` field of its settings. A name
+is a short lowercase word or phrase with underscores, such as `upload` or `run_audit`, and the order
+of the list is the order the Usage statistics page and the CSV exports show the columns. When the
+app calls `log(settings, name, user)`, the package accepts one of its own three names or a name the
+app declared, and rejects anything else. A usage row holds the time, the account name, and the event
+name only. It never holds search terms, file names, or content.
 
-Active users: an account is active in a period if it has a `login` or any event in
-`activity_events`, which defaults to all of `events`; `login_failed` and `logout` never count.
-The statistics page shows Logins and one column per declared event; its caption is generic unless
-the app sets `definitions`, for example to say how repeats of an action are counted.
+A person counts as active in a week or a month if they signed in or did any of the actions the app
+listed. If some recorded actions should not count as activity, the app can list the ones that do in
+`activity_events`; otherwise all of them count. A failed sign-in or a sign-out never counts.
 
-Choosing names: a new name is for a different action, a different artifact, or a different cost
-(one model call is one event, logged whenever the call happens, whatever triggered it). Repeating
-an action or triggering it another way is not a new name. Use the same name across apps where the
-concept is shared (`upload`, `download`). Configuration choices, such as which provider or model
-is used, are not events. Every declared name is something the app's disclosure document must list,
-so adding one is a disclosure change in the app.
+The Usage statistics page shows a Logins column and then one column for each declared event. Above
+the tables it shows a short caption explaining what the numbers mean. The package's caption is
+generic. An app that wants to say more, for example how repeated actions are counted, can set
+`definitions` to its own wording, which replaces the generic caption.
 
-## Disclosure marker
+Choosing names takes some judgement. A new name is for a different action, a different thing
+produced, or a different cost. One call to a language model, for instance, is one event, recorded
+whenever the call happens and whatever triggered it. Doing the same action again, or triggering it
+in a different way, is not a new name. Where two apps record the same concept, such as an upload or
+a download, they should use the same name so their exports line up. Configuration choices, such as
+which provider or model an app uses, are not events. Every name an app declares is something its
+data-handling document must mention, so adding one is a change to that document as well.
 
-Each consuming app shows its users a data-handling document. This package decides much of what that
-document describes: which tables exist, what each event row holds, how long events and backups are
-kept, where files live. So:
+## When a release changes what is stored
 
-- Any release that changes what is **stored, logged, transmitted, or retained** carries the line
-  `Disclosure: affected` in its CHANGELOG entry, with a sentence on what changed.
-- An app that bumps its pin to such a release updates its own disclosure document in the same commit.
-  The app's CLAUDE.md should say so.
-- Releases without the marker need no disclosure change.
+Each app shows its users a data-handling document. Much of what that document describes is decided
+by this package: which tables exist, what a usage row holds, how long rows and backups are kept, and
+where files live. So the package keeps the apps honest in this way:
 
-## Layout and development
+- Any release that changes what is stored, logged, sent elsewhere, or kept carries the line
+  `Disclosure: affected` in its CHANGELOG entry, with a sentence saying what changed.
+- An app that moves to such a release updates its own data-handling document in the same commit.
+  The app's instructions for maintainers should say so.
+- A release without that line needs no change to the document.
 
-`src` layout: the importable package is `src/ads_auth`, so tests always run against the installed
-(editable) copy, never a stray checkout on `sys.path`.
+## Working on the package
+
+The importable code is under `src/ads_auth`. Keeping it in a `src` folder means tests always run
+against the installed copy of the package, never against a stray checkout that happens to be on the
+path.
 
 ```bash
 python3.13 -m venv venv
@@ -126,14 +203,18 @@ venv/bin/pip install -e '.[test]'
 venv/bin/python -m pytest
 ```
 
-## Maintenance workflow
+To make a change and release it:
 
-1. Edit in this repository. Keep framework-free modules free of Streamlit and import-time I/O.
-2. Run `venv/bin/python -m pytest`. For a change to the gate or pages, also run the suite with the
-   Streamlit versions the consuming apps pin.
-3. Add a CHANGELOG entry. Decide whether it is `Disclosure: affected`.
-4. Bump `__version__` in `src/ads_auth/__init__.py`, commit, tag `vX.Y.Z`, push the tag.
-5. In each app, bump the pin in `requirements.txt` to the new tag, reinstall, run the app's own suite,
-   update its disclosure if the release is marked, commit, deploy.
+1. Edit the code here. Keep the non-Streamlit modules free of Streamlit and of file access at
+   import time.
+2. Run the tests with `venv/bin/python -m pytest`. For a change to the sign-in screen or the pages,
+   also run them with the Streamlit versions the apps use.
+3. Add a CHANGELOG entry and decide whether the release changes what is stored. If it does, add the
+   `Disclosure: affected` line.
+4. Raise `__version__` in `src/ads_auth/__init__.py`, commit, tag the commit `vX.Y.Z`, and push the
+   tag.
+5. In each app, change the pinned tag in `requirements.txt`, reinstall, run the app's own tests,
+   update its data-handling document if the release calls for it, commit, and deploy.
 
-Apps pin a tag, never a branch, so a deploy never picks up untested package changes.
+Apps always pin a tag, never a branch, so a deploy can never pick up a change that has not been
+tested.
