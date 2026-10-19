@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ads-auth"
+dynamic = ["version"]
+description = "Shared accounts, sessions, usage events, statistics page, disclosure page, maintenance, and operator CLI for Austin Data Solutions Streamlit apps."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Proprietary"}
+authors = [{name = "Austin Data Solutions"}]
+dependencies = [
+    "werkzeug>=3.1",
+    "tzdata",
+    "streamlit>=1.42",
+    "pandas",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "ads_auth.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
