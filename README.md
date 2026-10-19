@@ -17,7 +17,8 @@ Streamlit 1.50.0, and the current release.
   hashes, never as plain text. Five failed attempts within fifteen minutes lock the account until
   the window passes. A signed-in session lasts eight hours. Every account has a role, which is
   `user`, `manager`, or `admin`. An administrator can give someone a temporary password, which must
-  be changed at first sign-in. Accounts can be imported from another app that uses this package.
+  be changed at first sign-in. Accounts can be imported from another app's database, whether
+  that app uses this package or keeps its accounts in a Flask-style `user` table.
 - **Usage records.** The app writes one row each time something worth counting happens: a sign-in,
   a failed sign-in, a sign-out, and whichever of its own actions the app chooses to record, such as
   an upload. A row holds only the time, the account name, and the kind of event. It never holds

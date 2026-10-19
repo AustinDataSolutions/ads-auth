@@ -220,10 +220,18 @@ class UserStore:
             conn.execute("UPDATE users SET full_name=? WHERE id=?", (full_name, user.id))
         return self.get_by_id(user.id)
 
-    # ---- import from another app's users.db ---------------------------------
+    # ---- import from another app's database ---------------------------------
+
+    #: Source tables tried in order: this package's own `users` table first, then the `user`
+    #: table of apps that store accounts with Flask-style models. Both carry these columns.
+    IMPORT_SOURCE_TABLES = ("users", "user")
 
     def import_from_sqlite(self, source_path, allow: set[str], *, apply: bool = False, now: datetime | None = None) -> ImportReport:
-        """Copy allow-listed users (username, password_hash, full_name) from another ADS app's `users.db` (a `user` table with those columns).
+        """Copy allow-listed users (username, password_hash, full_name) from another app's SQLite database.
+
+        The source is read from a `users` table (another app using this package) when one exists,
+        otherwise from a `user` table (an app storing accounts with Flask-style models). Either
+        way only those three columns are read; roles, activity flags and other state stay behind.
 
         Dry run unless `apply=True`. Never overwrites, never prints hashes, never inherits roles.
         """
@@ -242,9 +250,7 @@ class UserStore:
         src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
         src.row_factory = sqlite3.Row
         try:
-            rows = src.execute("SELECT username, password_hash, full_name FROM user").fetchall()
-        except sqlite3.Error as exc:
-            raise StoreError("Source database has no readable 'user' table.") from exc
+            rows = self._read_import_rows(src)
         finally:
             src.close()
 
@@ -283,6 +289,17 @@ class UserStore:
         return report
 
     # ---- helpers -----------------------------------------------------------
+
+    @classmethod
+    def _read_import_rows(cls, src: sqlite3.Connection) -> list[sqlite3.Row]:
+        """Rows from the first source table in IMPORT_SOURCE_TABLES that has the three columns."""
+        for table in cls.IMPORT_SOURCE_TABLES:
+            try:
+                return src.execute(f"SELECT username, password_hash, full_name FROM {table}").fetchall()
+            except sqlite3.Error:
+                continue
+        names = " or ".join(f"'{t}'" for t in cls.IMPORT_SOURCE_TABLES)
+        raise StoreError(f"Source database has no readable {names} table.")
 
     def _require(self, username: str) -> User:
         user = self.get_by_username(username)

@@ -5,6 +5,16 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.1.1 (2026-10-19)
+
+Disclosure: unaffected.
+
+- `UserStore.import_from_sqlite` and the `import-users` command accept a source database in this
+  package's own schema (a `users` table) as well as the Flask-style `user` table they read before.
+  The `users` table is tried first, then `user`; a source with neither fails with a message naming
+  both. Dry run, allow list, no overwrite and no role inheritance are unchanged, so accounts can
+  now be copied between two apps that both use this package.
+
 ## v1.1.0 (2026-10-19)
 
 The usage event vocabulary is app-supplied. The package owns three core names, `login`,

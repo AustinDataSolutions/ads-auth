@@ -112,6 +112,29 @@ def test_import_users_dry_run_then_apply(env, tmp_path):
     assert UserStore(Path(env["DATA_DIR"]) / "app.db").verify_login("pat@example.org", "pat-password-123456")[1] is LoginOutcome.SUCCESS
 
 
+def test_import_users_from_package_database(env, tmp_path):
+    """The source is another app that uses this package."""
+    src = tmp_path / "other-app.db"
+    db.migrate(src)
+    UserStore(src).create_user("pat@example.org", password="pat-password-123456", full_name="Pat", role="admin")
+    code, out = run(["import-users", str(src), "--allow", "pat@example.org"], env)
+    assert code == 0 and "Will import: pat@example.org" in out.text and "Dry run" in out.text
+    code, out = run(["import-users", str(src), "--allow", "pat@example.org", "--apply"], env)
+    assert code == 0 and "Imported: pat@example.org" in out.text and "scrypt" not in out.text
+    store = UserStore(Path(env["DATA_DIR"]) / "app.db")
+    assert store.get_by_username("pat@example.org").role == "user"
+    assert store.verify_login("pat@example.org", "pat-password-123456")[1] is LoginOutcome.SUCCESS
+
+
+def test_import_users_source_without_known_table(env, tmp_path):
+    src = tmp_path / "other.db"
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE accounts (username TEXT)")
+    conn.commit(); conn.close()
+    code, out = run(["import-users", str(src), "--allow", "pat"], env)
+    assert code == 1 and out.text == "Error: Source database has no readable 'users' or 'user' table."
+
+
 def test_backup_restore_prune_export(env):
     data = Path(env["DATA_DIR"])
     run(["create-user", "u"], env, [PW, PW])

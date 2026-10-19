@@ -158,6 +158,65 @@ def test_import_missing_source(store, tmp_path):
         store.import_from_sqlite(tmp_path / "nope.db", {"a"})
 
 
+def test_import_from_package_schema(store, tmp_path):
+    """The source is another app that uses this package: a migrated database with a `users` table."""
+    src_path = tmp_path / "other-app.db"
+    db.migrate(src_path)
+    other = UserStore(src_path)
+    other.create_user("Pat@Example.org", password="pat-password-123456", full_name="Pat", role="admin")
+    other.create_user("lee", password="lee-password-1234567")
+    other.set_active("lee", False)
+    other.create_user("dev", password="dev-password-12345")
+
+    report = store.import_from_sqlite(src_path, {"pat@example.org", "lee", "ghost"})
+    assert report.planned == ["lee", "pat@example.org"]
+    assert report.not_found == ["ghost"] and not report.applied
+    assert store.count_users() == 0                                # dry run wrote nothing
+
+    report = store.import_from_sqlite(src_path, {"pat@example.org", "lee"}, apply=True, now=T0)
+    assert report.applied and report.ok
+    pat = store.get_by_username("pat@example.org")
+    assert pat.role == "user" and pat.full_name == "Pat"           # admin role not inherited
+    assert store.get_by_username("lee").is_active                  # inactive flag not inherited
+    assert store.verify_login("pat@example.org", "pat-password-123456", now=T0)[1] is LoginOutcome.SUCCESS
+    assert store.get_by_username("dev") is None                    # not allow-listed
+
+    report = store.import_from_sqlite(src_path, {"pat@example.org"}, apply=True)
+    assert report.skipped_existing == ["pat@example.org"] and not report.applied   # no overwrite
+
+
+def test_import_prefers_users_table_over_user_table(store, tmp_path):
+    from werkzeug.security import generate_password_hash
+    src = _source_db(tmp_path / "both.db", [("pat", generate_password_hash("flask-password-12345"), "Pat (user)")])
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT, full_name TEXT)")
+    conn.execute("INSERT INTO users(username, password_hash, full_name) VALUES ('pat', ?, 'Pat (users)')",
+                 (generate_password_hash("package-password-1234"),))
+    conn.commit(); conn.close()
+    report = store.import_from_sqlite(src, {"pat"}, apply=True)
+    assert report.applied and store.get_by_username("pat").full_name == "Pat (users)"
+
+
+def test_import_falls_back_to_user_table(store, tmp_path):
+    from werkzeug.security import generate_password_hash
+    src = _source_db(tmp_path / "flask.db", [("pat", generate_password_hash("flask-password-12345"), "Pat")])
+    conn = sqlite3.connect(src)
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name='users'").fetchone() is None
+    conn.close()
+    report = store.import_from_sqlite(src, {"pat"}, apply=True)
+    assert report.applied and store.get_by_username("pat").full_name == "Pat"
+
+
+def test_import_source_without_either_table(store, tmp_path):
+    src = tmp_path / "empty.db"
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE accounts (username TEXT)")
+    conn.commit(); conn.close()
+    with pytest.raises(StoreError) as exc:
+        store.import_from_sqlite(src, {"a"})
+    assert "'users' or 'user'" in str(exc.value)
+
+
 def test_delete_user_keeps_events_and_protects_last_admin(tmp_path):
     from ads_auth import db as _db
     from ads_auth.store import StoreError, UserStore
