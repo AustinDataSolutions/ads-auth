@@ -73,9 +73,10 @@ def test_reports_denied_for_plain_user(settings):
 def test_reports_for_manager_show_tables_and_three_downloads(settings):
     with db.connection(settings.db_path) as conn:
         events.log_event(conn, "login", user=_user("manager"), now=datetime(2026, 10, 1, 15, tzinfo=timezone.utc))
-        events.log_event(conn, "search", user=_user("manager"), now=datetime(2026, 10, 1, 15, 1, tzinfo=timezone.utc))
+        events.log_event(conn, "search", user=_user("manager"), now=datetime(2026, 10, 1, 15, 1, tzinfo=timezone.utc), allowed=settings.events)
     st = FakeSt(dates={"reports_from": date(2026, 9, 1), "reports_to": date(2026, 10, 31)})
     reports.render(st, settings, _user("manager"))
+    assert st.of("caption")[0][1][0] == reports.DEFINITIONS            # no app-specific wording declared
     assert len(st.of("dataframe")) == 3
     downloads = st.of("download_button")
     assert len(downloads) == 3
@@ -87,6 +88,11 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
     assert all_events.startswith("ts_utc,app,username,event\n2026-10-01T15:00:00+00:00,demo-app,m,login\n")
     monthly_frame = st.of("dataframe")[0][1][0]
     assert list(monthly_frame["Active users"]) == [1, 0]       # newest first: October one, September zero
+    assert list(monthly_frame.columns) == ["Period start", "Period end", "Active users", "Logins", "Searches", "Complete"]
+    assert list(monthly_frame["Searches"]) == [1, 0]
+    assert list(st.of("dataframe")[2][1][0].columns) == ["User", "Logins", "Searches"]
+    assert downloads[0][1][1].startswith("period_type,period_start,period_end,active_users,logins,search,complete\n")
+    assert downloads[1][1][1] == "username,logins,search\nm,1,1\n"
     exclude_call = st.of("multiselect")[0]
     assert "ops-test" in exclude_call[1][1] and exclude_call[2]["default"] == ["ops-test"]
 
@@ -105,6 +111,33 @@ def test_reports_exclude_box_removes_an_account_everywhere(settings):
     st.session_state["reports_exclude"] = []                              # manager clears the box
     reports.render(st, settings, _user("manager"))
     assert list(st.of("dataframe")[0][1][0]["Active users"]) == [2]
+
+
+def test_reports_columns_follow_the_declared_vocabulary(tmp_path):
+    from ads_auth import AppSettings
+    s = AppSettings(app_name="demo-app", title="Demo App", data_dir=tmp_path, disclosure_path=tmp_path / "d.md",
+                    events=("upload", "process", "library_refresh"), activity_events=("upload", "process"),
+                    definitions="**Process**: one per run, including reruns.")
+    db.migrate(s.db_path)
+    with db.connection(s.db_path) as conn:
+        events.log_event(conn, "process", user=_user("manager"), now=datetime(2026, 10, 1, 15, tzinfo=timezone.utc), allowed=s.events)
+        events.log_event(conn, "library_refresh", user=_user("manager"), now=datetime(2026, 10, 1, 16, tzinfo=timezone.utc), allowed=s.events)
+    st = FakeSt(dates={"reports_from": date(2026, 10, 1), "reports_to": date(2026, 10, 31)})
+    reports.render(st, s, _user("manager"))
+    assert st.of("caption")[0][1][0] == "**Process**: one per run, including reruns."
+    monthly = st.of("dataframe")[0][1][0]
+    assert list(monthly.columns) == ["Period start", "Period end", "Active users", "Logins", "Uploads", "Processes", "Library refreshes", "Complete"]
+    assert list(monthly["Processes"]) == [1] and list(monthly["Library refreshes"]) == [1]
+    assert list(monthly["Active users"]) == [1]
+    assert list(st.of("dataframe")[2][1][0].columns) == ["User", "Logins", "Uploads", "Processes", "Library refreshes"]
+    assert st.of("download_button")[1][1][1] == "username,logins,upload,process,library_refresh\nm,0,0,1,1\n"
+
+
+def test_column_labels():
+    assert [reports.column_label(n) for n in ("search", "upload", "library_refresh", "download", "process",
+                                               "generate_labels", "tag", "run_audit", "email_results", "summary")] == [
+        "Searches", "Uploads", "Library refreshes", "Downloads", "Processes",
+        "Generate labels", "Tags", "Run audits", "Email results", "Summaries"]
 
 
 def test_reports_rejects_inverted_range(settings):

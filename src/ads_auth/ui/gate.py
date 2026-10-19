@@ -23,7 +23,7 @@ def log(settings, event: str, user: User | None, **kwargs) -> None:
     if user is not None and user.id == 0:
         return
     with db.connection(settings.db_path) as conn:
-        events.log_event(conn, event, user=user, **kwargs)
+        events.log_event(conn, event, allowed=settings.events, user=user, **kwargs)
 
 
 def clear_protected_state(st_module) -> None:

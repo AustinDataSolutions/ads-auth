@@ -26,9 +26,18 @@ def test_log_event_known_and_anonymous(conn):
     assert tuple(rows[1]) == ("2026-10-15T12:00:00+00:00", None, None, "login_failed")
 
 
-def test_log_event_rejects_unknown_type(conn):
+def test_log_event_accepts_core_names_and_the_apps_allowed_names(conn):
+    assert events.CORE_EVENTS == {"login", "login_failed", "logout"}
+    assert events.CORE_ACTIVITY_EVENTS == {"login"}
+    events.log_event(conn, "logout", user=U, now=T0)                             # core: always accepted
+    events.log_event(conn, "upload", user=U, now=T0, allowed=("upload", "tag"))  # declared by the app
     with pytest.raises(ValueError):
         events.log_event(conn, "query_text", user=U)
+    with pytest.raises(ValueError):
+        events.log_event(conn, "upload", user=U)                                 # not declared
+    with pytest.raises(ValueError):
+        events.log_event(conn, "tag", user=U, allowed=("upload",))
+    assert [r[0] for r in conn.execute("SELECT event FROM usage_events ORDER BY id")] == ["logout", "upload"]
 
 
 def test_retention_cutoff_month_arithmetic():

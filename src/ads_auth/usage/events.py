@@ -4,13 +4,15 @@ import calendar
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 
 from ads_auth.db import to_iso, utc_now
 from ads_auth.models import User
 
-EVENTS = frozenset({"login", "login_failed", "logout", "search", "upload", "library_refresh", "download"})
-ACTIVITY_EVENTS = frozenset({"login", "search", "upload", "library_refresh", "download"})
+# The package owns these three names; every other event name is declared by the app on AppSettings.events.
+CORE_EVENTS = frozenset({"login", "login_failed", "logout"})
+CORE_ACTIVITY_EVENTS = frozenset({"login"})
 RETENTION_MONTHS = 13
 
 
@@ -18,13 +20,19 @@ def log_event(
     conn: sqlite3.Connection,
     event: str,
     *,
+    allowed: Iterable[str] = (),
     user: User | None = None,
     now: datetime | None = None,
     outcome: str | None = None,
     job_id: str | None = None,
 ) -> None:
-    """Append one event. `user=None` records an anonymous row (used for unknown-account failures)."""
-    if event not in EVENTS:
+    """Append one event. `user=None` records an anonymous row (used for unknown-account failures).
+
+    `event` must be a core name or one of `allowed`, the app's declared names (`ads_auth.ui.gate.log`
+    passes `settings.events`). Rows hold timestamp, account, event type, and the optional outcome
+    and job id; never content.
+    """
+    if event not in CORE_EVENTS and event not in set(allowed):
         raise ValueError(f"Unknown event type: {event!r}")
     with conn:
         conn.execute(

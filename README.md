@@ -39,6 +39,7 @@ class Settings(AppSettings):
     title: str = "Example App"                   # sign-in screen title
     disclosure_path: Path = REPO_ROOT / "DATA_HANDLING.md"
     usage_exclude_users: tuple[str, ...] = ("ops-test",)
+    events: tuple[str, ...] = ("upload", "process", "download")   # the actions this app records
     api_key: str = ""                            # the app's own fields
 
 settings = Settings(data_dir=Path(environ["DATA_DIR"]), auth_mode=auth_mode_from_environ(environ),
@@ -82,8 +83,25 @@ CLI extensions: pass `commands=[Command(name, handler, help, arguments)]` to `cl
 receives the `Cli` instance (`settings`, `out`, `store`, `refuse_if_serving(force)`) and the parsed
 arguments.
 
-Event vocabulary in 1.0.0: `login`, `login_failed`, `logout`, `search`, `upload`, `library_refresh`,
-`download`. Event rows never hold search terms, file names, or content. Activity (for active-user counts) is everything but `login_failed` and `logout`.
+## Event vocabulary
+
+The package owns three core event names: `login`, `login_failed`, and `logout`. Every other name is
+the app's, declared as `events` on its settings object (lowercase slugs, in the order the statistics
+page and CSV exports show them). `log(settings, name, user)` accepts a core name or a declared one
+and rejects anything else. Event rows hold timestamp, account, and event type only, never search
+terms, file names, or content.
+
+Active users: an account is active in a period if it has a `login` or any event in
+`activity_events`, which defaults to all of `events`; `login_failed` and `logout` never count.
+The statistics page shows Logins and one column per declared event; its caption is generic unless
+the app sets `definitions`, for example to say how repeats of an action are counted.
+
+Choosing names: a new name is for a different action, a different artifact, or a different cost
+(one model call is one event, logged whenever the call happens, whatever triggered it). Repeating
+an action or triggering it another way is not a new name. Use the same name across apps where the
+concept is shared (`upload`, `download`). Configuration choices, such as which provider or model
+is used, are not events. Every declared name is something the app's disclosure document must list,
+so adding one is a disclosure change in the app.
 
 ## Disclosure marker
 

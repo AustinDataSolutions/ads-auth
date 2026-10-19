@@ -5,6 +5,45 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.1.0 (2026-10-19)
+
+The usage event vocabulary is app-supplied. The package owns three core names, `login`,
+`login_failed`, and `logout`; every other name is declared by the app.
+
+- `AppSettings` gains `events` (the app's event names, lowercase slugs, in display order),
+  `activity_events` (the subset that counts toward active users; default all of `events`), and
+  `definitions` (optional Markdown replacing the generic caption on the statistics page).
+  Validation rejects names that are not lowercase slugs, duplicates, core names, and activity names
+  not in `events`. `all_events` and `all_activity_events` give the full sets including the core names.
+- `usage.events.log_event` takes `allowed`, the names it accepts beside the core ones;
+  `ui.gate.log` passes `settings.events`. The constants `EVENTS` and `ACTIVITY_EVENTS` are gone,
+  replaced by `CORE_EVENTS` and `CORE_ACTIVITY_EVENTS`.
+- `usage.reports`: `PeriodRow` and `UserRow` carry `logins` plus `counts`, one entry per declared
+  event, instead of fixed `searches` and `uploads` fields. `active_users_by_period` takes `events` and
+  `activity`; `per_user_totals`, `aggregate_csv`, and `per_user_csv` take `events`. CSV headers follow:
+  `period_type,period_start,period_end,active_users,logins,<one column per event>,complete` and
+  `username,logins,<one column per event>`. `AGGREGATE_HEADER` and `PER_USER_HEADER` became the
+  functions `aggregate_header(events)` and `per_user_header(events)`. `combined_events_csv` is
+  unchanged: any name fits the four-column export.
+- `ui.reports`: one count column per declared event, labelled from the name (`library_refresh` ->
+  "Library refreshes"), after Logins. The caption is generic unless `definitions` is set.
+
+Migration: declare the names the app logs on its settings object, for example
+`events=("upload", "process", "generate_labels", "summarize_dataset", "summarize_cluster", "download", "tag")`
+or `events=("upload_audit_file", "upload_model_tree", "run_audit", "email_results", "download")`.
+`log_event` rejects an undeclared name, so a missing declaration fails on first use. Naming
+principle: a new name is for a different action, a different artifact, or a different cost (one
+model call is one event, logged whenever the call happens, whatever triggered it); repeating an
+action or triggering it differently is not a new name; use the same name across apps where the
+concept is shared (`upload`, `download`); configuration choices (which provider or model) are not
+events. Set `definitions` where the generic caption is not enough, for example to say how repeats
+of an action are counted.
+
+Disclosure: unaffected. The package stores nothing new: event rows still hold timestamp, account,
+and event type, with the same retention. The vocabulary itself is now each app's responsibility,
+so each app's disclosure must list the actions it records, and adding a name to `events` is an
+app-side disclosure change in the same commit.
+
 ## v1.0.0 (2026-10-19)
 
 First release. Code moved from the first consuming app with these changes:

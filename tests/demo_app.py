@@ -18,6 +18,7 @@ settings = AppSettings(
     disclosure_path=Path(__file__).parent / "fixtures" / "disclosure.md",
     auth_mode=auth_mode_from_environ(os.environ),
     is_render=os.environ.get("RENDER", "").lower() == "true",
+    events=("search",),
 )
 
 
