@@ -53,6 +53,7 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
 | `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the weekly and monthly active-user figures, and the CSV exports. |
 | `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
+| `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
 | `ads_auth.ui.reports`, `ui.about` | The Usage statistics page and the About page. |
 | `ads_auth.maintenance` | The daily backup, the removal of old usage rows, the loop that runs them in the background, and the hook for an app's own task. |
 | `ads_auth.preflight` | The startup checks. When they pass, a `serving.lock` file is written so operator commands know the app is running. |
@@ -129,6 +130,7 @@ from ads_auth.ui.gate import log, render_sidebar, require_login
 def main_page():
     user = require_login(st, settings)          # shows the sign-in screen until someone signs in
     render_sidebar(st, settings, user, show_reports=user.has_role("manager"))
+    render_other_ads_tools(st)                  # shared ADS app links, below this app's sidebar items
     ...
     log(settings, "upload", user)               # record that this person uploaded something
 

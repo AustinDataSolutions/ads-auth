@@ -5,6 +5,14 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.1.2 (2026-10-23)
+
+Disclosure: unaffected.
+
+- `ui.ads_apps.render_other_ads_tools` adds a portable sidebar section linking to Automatic Audit,
+  Rules Finder, Report Summarizer, and Themes Explorer. Each link has a plain emoji, a bold app
+  name, and no underline. Streamlit apps can call the helper after their own sidebar content.
+
 ## v1.1.1 (2026-10-19)
 
 Disclosure: unaffected.
