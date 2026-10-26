@@ -9,7 +9,7 @@ import streamlit as st
 
 from ads_auth import AppSettings, auth_mode_from_environ, db
 from ads_auth.ui import about, reports
-from ads_auth.ui.gate import log, render_sidebar, require_login
+from ads_auth.ui.gate import confirm_navigation, log, render_sidebar, require_login
 
 settings = AppSettings(
     app_name="demo-app",
@@ -22,9 +22,15 @@ settings = AppSettings(
 )
 
 
+LEAVE_MESSAGE = "Leaving this page clears the search box."
+
+
 def main_page():
     user = require_login(st, settings)
-    render_sidebar(st, settings, user, show_reports=user.has_role("manager"))
+    # A typed search is the demo's "work in progress": leaving the page would clear it.
+    render_sidebar(st, settings, user, show_reports=user.has_role("manager"),
+                   confirm_leave=lambda: bool(st.session_state.get("search")))
+    confirm_navigation(st, settings, LEAVE_MESSAGE)
     st.title("Demo App")
     if st.text_input("🔍 Search", key="search"):
         log(settings, "search", user)

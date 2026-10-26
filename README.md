@@ -125,11 +125,13 @@ Besides the settings object, the app keeps a few things in its own repository:
 # app.py
 from ads_auth import db
 from ads_auth.ui import about, reports
-from ads_auth.ui.gate import log, render_sidebar, require_login
+from ads_auth.ui.gate import confirm_navigation, log, render_sidebar, require_login
 
 def main_page():
     user = require_login(st, settings)          # shows the sign-in screen until someone signs in
-    render_sidebar(st, settings, user, show_reports=user.has_role("manager"))
+    render_sidebar(st, settings, user, show_reports=user.has_role("manager"),
+                   confirm_leave=lambda: bool(st.session_state.get("search")))   # optional: see below
+    confirm_navigation(st, settings, "Leaving this page clears the search box.")  # pairs with confirm_leave
     render_other_ads_tools(st)                  # shared ADS app links, below this app's sidebar items
     ...
     log(settings, "upload", user)               # record that this person uploaded something
@@ -144,6 +146,13 @@ def run():
 
 `tests/demo_app.py` is the smallest complete app that uses the package. The package's own sign-in
 tests run against it, and it is a good starting point for a new app.
+
+Streamlit forgets a screen's widgets (uploads, edited text) when the person opens another page. An
+app whose screen holds such work can pass `confirm_leave`, a function that returns True while there
+is something to lose. While it does, the sidebar's Usage statistics and About links become buttons
+that only note the chosen page, and `confirm_navigation(st, settings, message)`, called right after
+`render_sidebar`, opens a dialog: the app's message, "Do you still wish to proceed?", and the buttons
+"Go back" and "Proceed". Proceed switches to the chosen page; Go back, or closing the dialog, stays.
 
 To add a housekeeping task, pass it to `maintenance.start_background(data_dir, db_path, extra=task)`.
 The package runs its daily pass (back up if due, remove old usage rows) and then calls `task(now)`.

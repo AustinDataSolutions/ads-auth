@@ -5,6 +5,19 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.1.3 (2026-10-26)
+
+Disclosure: unaffected.
+
+- `ui.gate.render_sidebar` takes an optional `confirm_leave` callable. While it returns True (the
+  screen holds uploads or edited text that a page change would discard), the Usage statistics and
+  About links are drawn as buttons that only record the chosen page in
+  `session_state[PENDING_PAGE]` instead of navigating. The new `ui.gate.confirm_navigation(st,
+  settings, message)` then opens a dialog with the app's message, "Do you still wish to proceed?",
+  and the buttons "Go back" and "Proceed" (`st.switch_page` to the chosen page). Closing the dialog
+  any other way counts as "Go back". Apps that pass nothing see no change.
+- Requires Streamlit 1.52 or newer (the dialog's `on_dismiss` hook).
+
 ## v1.1.2 (2026-10-23)
 
 Disclosure: unaffected.

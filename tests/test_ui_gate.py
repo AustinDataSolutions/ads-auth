@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from ads_auth import db
 from ads_auth.store import UserStore
-from ads_auth.ui.gate import INVALID_LOGIN_MESSAGE, SETUP_MESSAGE
+from ads_auth.ui.gate import INVALID_LOGIN_MESSAGE, LEAVE_QUESTION, PENDING_PAGE, SETUP_MESSAGE
 
 DEMO = Path(__file__).resolve().parent / "demo_app.py"
 PW = "a-perfectly-adequate-password"
@@ -153,3 +153,65 @@ def test_disabled_auth_locally_skips_the_gate_and_records_nothing(env, monkeypat
     assert _signed_in(at)
     at.text_input(key="search").input("anything").run()
     assert _events(env) == []
+
+
+# --- leaving the page with work in progress ---------------------------------------------------------
+
+def _sidebar_nav(at):
+    """(page links, navigation buttons) the sidebar currently shows."""
+    links = [p.label for p in at.sidebar.get("page_link")]
+    buttons = [b.key for b in at.sidebar.button if b.key.startswith("auth_nav_")]
+    return links, buttons
+
+
+def test_links_navigate_at_once_while_there_is_nothing_to_lose(env):
+    UserStore(env).create_user("pat", password=PW, role="manager")
+    at = _login(_app(), "pat", PW)
+    assert _sidebar_nav(at) == (["Usage statistics", "About this app and data handling"], [])
+    assert PENDING_PAGE not in at.session_state
+    assert not [b for b in at.button if b.key in ("auth_leave_back", "auth_leave_proceed")]
+
+
+def test_a_typed_search_turns_the_links_into_a_confirmation(env):
+    UserStore(env).create_user("pat", password=PW, role="manager")
+    at = _login(_app(), "pat", PW)
+    at.text_input(key="search").input("quarterly").run()
+    assert not at.exception, at.exception
+    assert _sidebar_nav(at) == ([], ["auth_nav_reports", "auth_nav_about"])
+    assert [b.label for b in at.sidebar.button if b.key.startswith("auth_nav_")] == \
+        ["Usage statistics", "About this app and data handling"]
+
+    # Clicking a link now asks instead of leaving.
+    at.button(key="auth_nav_about").click().run()
+    assert not at.exception, at.exception
+    assert at.session_state[PENDING_PAGE] == "about"
+    assert "Leaving this page clears the search box." in [m.value for m in at.markdown]
+    assert f"**{LEAVE_QUESTION}**" in [m.value for m in at.markdown]
+    assert [b.label for b in at.button if b.key.startswith("auth_leave_")] == ["Go back", "Proceed"]
+    assert [t.value for t in at.title] == ["Demo App"]
+
+    # Go back: the dialog closes and the screen stays. (In a browser the typed search is kept too;
+    # AppTest on Streamlit 1.52 resets keyed widgets after the full rerun Go back asks for from
+    # inside the dialog, so that is not asserted here.)
+    at.button(key="auth_leave_back").click().run()
+    assert not at.exception, at.exception
+    assert PENDING_PAGE not in at.session_state
+    at.run()
+    assert not [b for b in at.button if b.key.startswith("auth_leave_")]
+    assert [t.value for t in at.title] == ["Demo App"]
+
+    # Proceed: the chosen page opens.
+    at.text_input(key="search").input("quarterly").run()         # see the note above
+    at.button(key="auth_nav_reports").click().run()
+    assert at.session_state[PENDING_PAGE] == "reports"
+    at.button(key="auth_leave_proceed").click().run()
+    assert not at.exception, at.exception
+    assert PENDING_PAGE not in at.session_state
+    assert [t.value for t in at.title] == ["Usage statistics"]
+
+
+def test_the_confirmation_only_offers_pages_the_app_registered(env):
+    UserStore(env).create_user("pat", password=PW)                   # not a manager: no Usage statistics
+    at = _login(_app(), "pat", PW)
+    at.text_input(key="search").input("quarterly").run()
+    assert _sidebar_nav(at) == ([], ["auth_nav_about"])
