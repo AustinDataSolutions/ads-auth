@@ -38,5 +38,6 @@ def run(load_settings: Callable[[], AppSettings], *, out=print) -> int:
         out(f"preflight: database migration failed ({exc.__class__.__name__}).")
         return 5
     (settings.data_dir / LOCK_NAME).write_text(str(os.getpid()))
-    out(f"preflight: ok (auth={settings.auth_mode}, schema v{version}, data_dir={settings.data_dir})")
+    remembered = "on" if settings.cookie_enabled else "off"
+    out(f"preflight: ok (auth={settings.auth_mode}, schema v{version}, data_dir={settings.data_dir}, stay_signed_in={remembered})")
     return 0

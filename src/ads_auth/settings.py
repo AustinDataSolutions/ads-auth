@@ -9,9 +9,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ads_auth.tokens import MIN_SECRET_LENGTH
 from ads_auth.usage.events import CORE_ACTIVITY_EVENTS, CORE_EVENTS
 
 AUTH_MODES = ("required", "disabled")
+COOKIE_SECRET_VARIABLES = ("ADS_AUTH_COOKIE_SECRET", "STREAMLIT_SERVER_COOKIE_SECRET")
 DB_FILENAME = "app.db"
 EVENT_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -28,6 +30,16 @@ def exclude_users_from_environ(environ, default: str = "") -> tuple[str, ...]:
     """`USAGE_EXCLUDE_USERS`: comma-separated accounts left out of the statistics page by default."""
     raw = environ.get("USAGE_EXCLUDE_USERS", default) or ""
     return tuple(name.strip().casefold() for name in raw.split(",") if name.strip())
+
+
+def cookie_secret_from_environ(environ) -> str:
+    """The secret that signs the sign-in cookie: `ADS_AUTH_COOKIE_SECRET`, else Streamlit's own
+    `STREAMLIT_SERVER_COOKIE_SECRET` (already set on the hosted services), else empty (feature off)."""
+    for name in COOKIE_SECRET_VARIABLES:
+        value = (environ.get(name, "") or "").strip()
+        if value:
+            return value
+    return ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -52,6 +64,9 @@ class AppSettings:
                          Empty means the package's generic caption.
     pages:               registry filled by the app's router (`name -> st.Page`) so package pages can link
                          to `app`, `about`, and `reports` without importing the app
+    cookie_secret:       signs the "stay signed in" cookie that lets a browser reload keep the session.
+                         Empty (the default) turns the cookie off: a reload then shows the sign-in screen,
+                         as before. At least 32 characters when set; `cookie_secret_from_environ` reads it.
     """
 
     app_name: str
@@ -65,10 +80,13 @@ class AppSettings:
     activity_events: tuple[str, ...] | None = None
     definitions: str = ""
     pages: dict[str, object] = field(default_factory=dict, compare=False, repr=False)
+    cookie_secret: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         if not self.app_name or not self.app_name.strip():
             raise ValueError("app_name is required.")
+        if self.cookie_secret and len(self.cookie_secret) < MIN_SECRET_LENGTH:
+            raise ValueError(f"cookie_secret must be at least {MIN_SECRET_LENGTH} characters (or empty to turn the sign-in cookie off).")
         if self.auth_mode not in AUTH_MODES:
             raise ValueError("AUTH_MODE must be 'required' or 'disabled'.")
         object.__setattr__(self, "data_dir", Path(self.data_dir))
@@ -105,3 +123,8 @@ class AppSettings:
     @property
     def auth_disabled(self) -> bool:
         return self.auth_mode == "disabled"
+
+    @property
+    def cookie_enabled(self) -> bool:
+        """True when sign-ins are remembered across a browser reload."""
+        return bool(self.cookie_secret)

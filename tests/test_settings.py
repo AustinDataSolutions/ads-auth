@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ads_auth import AppSettings, auth_mode_from_environ, exclude_users_from_environ
+from ads_auth import AppSettings, auth_mode_from_environ, cookie_secret_from_environ, exclude_users_from_environ
 
 
 def test_paths_and_derived_values(tmp_path):
@@ -75,3 +75,19 @@ def test_apps_may_subclass_with_their_own_fields(tmp_path):
     assert s.app_name == "my-app" and s.db_path == tmp_path / "app.db" and s.api_key == "k"
     s.pages["app"] = object()                                   # the registry is mutable even though settings are frozen
     assert "app" in s.pages
+
+
+def test_the_sign_in_cookie_is_off_unless_a_long_secret_is_given(tmp_path):
+    base = dict(app_name="x", title="Demo", data_dir=tmp_path, disclosure_path=tmp_path)
+    assert not AppSettings(**base).cookie_enabled
+    s = AppSettings(**base, cookie_secret="k" * 32)
+    assert s.cookie_enabled and "k" * 32 not in repr(s)       # never shown
+    with pytest.raises(ValueError):
+        AppSettings(**base, cookie_secret="too-short")
+
+
+def test_cookie_secret_from_environ_prefers_the_package_variable_then_streamlits():
+    assert cookie_secret_from_environ({}) == ""
+    assert cookie_secret_from_environ({"STREAMLIT_SERVER_COOKIE_SECRET": " s " }) == "s"
+    assert cookie_secret_from_environ({"ADS_AUTH_COOKIE_SECRET": "a", "STREAMLIT_SERVER_COOKIE_SECRET": "s"}) == "a"
+    assert cookie_secret_from_environ({"ADS_AUTH_COOKIE_SECRET": "", "STREAMLIT_SERVER_COOKIE_SECRET": "s"}) == "s"

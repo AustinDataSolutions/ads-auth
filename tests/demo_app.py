@@ -7,7 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from ads_auth import AppSettings, auth_mode_from_environ, db
+from ads_auth import AppSettings, auth_mode_from_environ, cookie_secret_from_environ, db
 from ads_auth.ui import about, reports
 from ads_auth.ui.gate import confirm_navigation, log, render_sidebar, require_login
 
@@ -19,6 +19,7 @@ settings = AppSettings(
     auth_mode=auth_mode_from_environ(os.environ),
     is_render=os.environ.get("RENDER", "").lower() == "true",
     events=("search",),
+    cookie_secret=cookie_secret_from_environ(os.environ),
 )
 
 

@@ -215,3 +215,193 @@ def test_the_confirmation_only_offers_pages_the_app_registered(env):
     at = _login(_app(), "pat", PW)
     at.text_input(key="search").input("quarterly").run()
     assert _sidebar_nav(at) == ([], ["auth_nav_about"])
+
+
+# --- staying signed in across a reload ------------------------------------------------------------
+#
+# AppTest has no browser, so the two touch points with it are replaced: the cookies the handshake
+# carried (`cookie.request_cookies`) and the set/clear instruction the page would draw
+# (`cookie.apply_action`), which is recorded instead.
+
+from datetime import timedelta
+
+from ads_auth import tokens
+from ads_auth.db import to_iso, utc_now
+from ads_auth.ui import cookie
+from ads_auth.ui.gate import COOKIE_BLOCKED, SESSION_AUTHENTICATED_UTC
+
+SECRET = "demo-cookie-secret-of-32-characters!"
+
+
+@pytest.fixture
+def remembered(env, monkeypatch):
+    """The demo app with the cookie on; returns the recorded browser instructions and a cookie jar."""
+    monkeypatch.setenv("ADS_AUTH_COOKIE_SECRET", SECRET)
+    actions = []
+    jar = {}
+    monkeypatch.setattr(cookie, "apply_action", lambda st, settings, action: actions.append(action) or True)
+    monkeypatch.setattr(cookie, "request_cookies", lambda st: dict(jar))
+    return actions, jar
+
+
+def _set_token(actions):
+    sets = [a for a in actions if a[0] == "set"]
+    assert sets, actions
+    return sets[-1][1]
+
+
+def test_sign_in_asks_the_browser_to_keep_a_signed_token(env, remembered):
+    actions, _ = remembered
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    at = _login(_app(), "pat", PW)
+    assert _signed_in(at)
+    assert [a[0] for a in actions] == ["set"]
+    claims = tokens.verify(SECRET, _set_token(actions))
+    assert claims.user_id == user.id and claims.session_version == user.session_version
+    assert claims.authenticated_utc == at.session_state[SESSION_AUTHENTICATED_UTC]
+    assert _events(env) == [("pat", "login")]
+
+
+def test_a_reload_with_the_cookie_restores_the_session_without_a_login_event(env, remembered):
+    actions, jar = remembered
+    UserStore(env).create_user("pat", password=PW, full_name="Pat")
+    first = _login(_app(), "pat", PW)
+    jar[tokens.COOKIE_NAME] = _set_token(actions)
+    actions.clear()
+    again = _app()                                              # a new Streamlit session: the reload
+    assert _signed_in(again)
+    assert any("Signed in as **Pat**" in m.value for m in again.sidebar.markdown)
+    assert again.session_state[SESSION_AUTHENTICATED_UTC] == first.session_state[SESSION_AUTHENTICATED_UTC]
+    assert actions == []                                        # nothing re-issued, nothing cleared
+    assert _events(env) == [("pat", "login")]                   # the restore is not a sign-in
+    again.text_input(key="search").input("q").run()
+    assert _events(env) == [("pat", "login"), ("pat", "search")]
+
+
+def test_sign_out_clears_the_cookie_and_blocks_a_restore_on_this_connection(env, remembered):
+    actions, jar = remembered
+    UserStore(env).create_user("pat", password=PW)
+    at = _login(_app(), "pat", PW)
+    jar[tokens.COOKIE_NAME] = _set_token(actions)                # as if the browser had stored it
+    actions.clear()
+    at.button(key="logout_button").click().run()
+    assert not at.exception and not _signed_in(at)
+    assert actions == [("clear",)]
+    assert at.session_state[COOKIE_BLOCKED] is True
+    at.run()                                                    # the handshake still carries the old cookie
+    assert not _signed_in(at) and actions == [("clear",)]
+    assert _events(env) == [("pat", "login"), ("pat", "logout")]
+    jar.clear()
+    assert not _signed_in(_app())                               # a real reload after sign-out: sign-in screen
+
+
+@pytest.mark.parametrize("revoke", [
+    lambda store: store.set_temporary_password("pat"),          # password reset bumps session_version
+    lambda store: store.set_active("pat", False),               # deactivated account
+])
+def test_a_cookie_from_before_a_reset_or_deactivation_is_rejected_and_cleared(env, remembered, revoke):
+    actions, jar = remembered
+    UserStore(env).create_user("pat", password=PW)
+    _login(_app(), "pat", PW)
+    jar[tokens.COOKIE_NAME] = _set_token(actions)
+    actions.clear()
+    revoke(UserStore(env))
+    at = _app()
+    assert not _signed_in(at)
+    assert {t.key for t in at.text_input} == {"login_username", "login_password"}
+    assert any("session ended" in i.value for i in at.info)
+    assert actions == [("clear",)] and at.session_state[COOKIE_BLOCKED] is True
+    assert _events(env) == [("pat", "login")]
+
+
+def test_an_expired_cookie_shows_the_sign_in_screen_with_the_notice(env, remembered):
+    actions, jar = remembered
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    jar[tokens.COOKIE_NAME] = tokens.issue(SECRET, user.id, user.session_version, to_iso(utc_now() - timedelta(hours=9)))
+    at = _app()
+    assert not _signed_in(at) and any("session ended" in i.value for i in at.info)
+    assert actions == [("clear",)]
+
+
+def test_a_tampered_or_foreign_cookie_is_ignored_quietly_and_cleared(env, remembered):
+    actions, jar = remembered
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    jar[tokens.COOKIE_NAME] = tokens.issue("another-apps-secret-32-characters!!", user.id, user.session_version, to_iso(utc_now()))
+    at = _app()
+    assert not _signed_in(at) and not at.info and not at.error
+    assert actions == [("clear",)] and _events(env) == []
+
+
+def test_a_cookie_for_a_deleted_account_is_rejected(env, remembered):
+    actions, jar = remembered
+    jar[tokens.COOKIE_NAME] = tokens.issue(SECRET, 999, 1, to_iso(utc_now()))
+    UserStore(env).create_user("pat", password=PW)
+    at = _app()
+    assert not _signed_in(at) and actions == [("clear",)]
+
+
+def test_signing_in_again_after_a_rejected_cookie_issues_a_fresh_one(env, remembered):
+    actions, jar = remembered
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    jar[tokens.COOKIE_NAME] = "v1.1.1.1.nonsense"
+    at = _login(_app(), "pat", PW)
+    assert _signed_in(at)
+    assert [a[0] for a in actions] == ["clear", "set"]
+    assert tokens.verify(SECRET, _set_token(actions)).user_id == user.id
+
+
+def test_changing_the_password_reissues_the_cookie_with_the_new_version(env, remembered):
+    actions, _ = remembered
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    at = _login(_app(), "pat", PW)
+    actions.clear()
+    form_inputs = [t for t in at.sidebar.text_input]
+    form_inputs[0].input(PW); form_inputs[1].input("another-long-password-1"); form_inputs[2].input("another-long-password-1")
+    at.button(key="FormSubmitter:change_password_form-Change password").click().run()
+    assert any("Password changed" in s.value for s in at.sidebar.success)
+    claims = tokens.verify(SECRET, _set_token(actions))
+    assert claims.session_version == user.session_version + 1
+    assert claims.authenticated_utc == at.session_state[SESSION_AUTHENTICATED_UTC]    # sign-in time unchanged
+
+
+def test_the_forced_password_change_reissues_the_cookie_too(env, remembered):
+    actions, _ = remembered
+    user, temp = UserStore(env).create_user("t", temporary=True)
+    at = _login(_app(), "t", temp)
+    actions.clear()
+    inputs = at.text_input
+    inputs[0].input(temp); inputs[1].input("brand-new-password-ok"); inputs[2].input("brand-new-password-ok")
+    at.button[0].click().run()
+    assert _signed_in(at)
+    assert tokens.verify(SECRET, _set_token(actions)).session_version == user.session_version + 1
+
+
+def test_without_a_secret_nothing_is_set_and_a_cookie_is_ignored(env, monkeypatch):
+    monkeypatch.delenv("ADS_AUTH_COOKIE_SECRET", raising=False)
+    monkeypatch.delenv("STREAMLIT_SERVER_COOKIE_SECRET", raising=False)
+    actions = []
+    monkeypatch.setattr(cookie, "apply_action", lambda st, settings, action: actions.append(action) or True)
+    user, _ = UserStore(env).create_user("pat", password=PW)
+    monkeypatch.setattr(cookie, "request_cookies",
+                        lambda st: {tokens.COOKIE_NAME: tokens.issue(SECRET, user.id, user.session_version, to_iso(utc_now()))})
+    at = _app()
+    assert not _signed_in(at)
+    _login(at, "pat", PW)
+    assert _signed_in(at) and actions == []
+    at.button(key="logout_button").click().run()
+    assert actions == [] and COOKIE_BLOCKED not in at.session_state
+
+
+def test_the_real_browser_touch_points_are_harmless_under_apptest(env, monkeypatch):
+    """Without a live server the instruction is simply not drawn, and the handshake has no cookies."""
+    monkeypatch.setenv("ADS_AUTH_COOKIE_SECRET", SECRET)
+    drawn = []
+    real = cookie.apply_action
+    monkeypatch.setattr(cookie, "apply_action", lambda st, s, a: drawn.append(real(st, s, a)) or drawn[-1])
+    UserStore(env).create_user("pat", password=PW)
+    at = _login(_app(), "pat", PW)
+    assert _signed_in(at)
+    at.button(key="logout_button").click().run()
+    assert not at.exception and not _signed_in(at)
+    assert drawn == [False, False]                           # set after sign-in, clear after sign-out: neither drawn
+    assert _events(env) == [("pat", "login"), ("pat", "logout")]

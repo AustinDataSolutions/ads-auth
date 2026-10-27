@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from functools import partial
 
-from ads_auth import db, policy
+from ads_auth import db, policy, tokens
 from ads_auth.models import User
 from ads_auth.store import LoginOutcome, UserStore
-from ads_auth.ui import link
+from ads_auth.ui import cookie, link
 from ads_auth.usage import events
 
 SESSION_USER_ID = "auth_user_id"
@@ -14,6 +14,8 @@ SESSION_VERSION = "auth_session_version"
 SESSION_AUTHENTICATED_UTC = "auth_authenticated_utc"
 EXPIRED_NOTICE = "auth_expired_notice"
 PENDING_PAGE = "auth_pending_page"      # page name chosen in the sidebar while `confirm_leave` held
+COOKIE_ACTION = "auth_cookie_action"    # ("set", token) or ("clear",): what the browser is asked to do with the sign-in cookie
+COOKIE_BLOCKED = "auth_cookie_blocked"  # after sign-out or a rejected cookie: the cookie this websocket connected with is stale
 LEAVE_QUESTION = "Do you still wish to proceed?"
 INVALID_LOGIN_MESSAGE = "Sign-in was not accepted. Check your username and password and try again."
 SETUP_MESSAGE = "This app has no accounts yet. The administrator must create the first account before anyone can sign in."
@@ -40,7 +42,11 @@ def _store(settings) -> UserStore:
 
 
 def current_user(st_module, settings) -> User | None:
-    """The signed-in user if the session is still valid, else None (state cleared)."""
+    """The signed-in user if the session is still valid, else None (state cleared).
+
+    Reads session state only. Restoring a session from the sign-in cookie is `require_login`'s job,
+    so the cheap re-checks in fragments never touch the request.
+    """
     if settings.auth_disabled:
         return LOCAL_DEV_USER
     state = st_module.session_state
@@ -62,6 +68,81 @@ def logout(st_module, settings) -> None:
     if user is not None:
         log(settings, "logout", user)
     clear_protected_state(st_module)
+    if settings.cookie_enabled:
+        # The websocket this session connected with still carries the old cookie: never restore
+        # from it again, and ask the browser to drop it.
+        st_module.session_state[COOKIE_BLOCKED] = True
+        _schedule_cookie(st_module, ("clear",))
+
+
+# --- the sign-in cookie --------------------------------------------------------------------------
+#
+# After an actual sign-in the browser is asked to store a signed token (`ads_auth.tokens`) in an
+# HttpOnly cookie. A new Streamlit session (a reload, a new tab) that arrives with that cookie is
+# restored silently: same account, same sign-in time, so the eight-hour lifetime and every revocation
+# rule (`policy.session_status`) apply exactly as if the websocket had never dropped. Restores log no
+# event; only a sign-in through the form logs `login`.
+
+def _schedule_cookie(st_module, action: tuple) -> None:
+    st_module.session_state[COOKIE_ACTION] = action
+
+
+def _render_cookie_action(st_module, settings) -> None:
+    """Emit the pending set/clear instruction for the browser once, on this run."""
+    action = st_module.session_state.pop(COOKIE_ACTION, None)
+    if action is not None and settings.cookie_enabled:
+        cookie.apply_action(st_module, settings, action)
+
+
+def _session_token(st_module, settings) -> str | None:
+    state = st_module.session_state
+    user_id, version, when = state.get(SESSION_USER_ID), state.get(SESSION_VERSION), state.get(SESSION_AUTHENTICATED_UTC)
+    if user_id is None or version is None or not when:
+        return None
+    return tokens.issue(settings.cookie_secret, user_id, version, when)
+
+
+def remember_session(st_module, settings, *, now: bool = False) -> None:
+    """(Re)issue the cookie for the signed-in session in session state.
+
+    With `now` the browser instruction is drawn immediately (for a run that will not be followed
+    by a rerun); otherwise it is drawn at the start of the next run by `require_login`.
+    """
+    if not settings.cookie_enabled:
+        return
+    token = _session_token(st_module, settings)
+    if token is None:
+        return
+    if now:
+        cookie.apply_action(st_module, settings, ("set", token))
+    else:
+        _schedule_cookie(st_module, ("set", token))
+
+
+def _restore_from_cookie(st_module, settings, store: UserStore) -> User | None:
+    """Adopt the session named by a valid cookie into session state; otherwise have the cookie cleared."""
+    state = st_module.session_state
+    if state.get(COOKIE_BLOCKED):
+        return None
+    raw = cookie.request_cookies(st_module).get(tokens.COOKIE_NAME)
+    if not raw:
+        return None
+    claims = tokens.verify(settings.cookie_secret, raw)
+    if claims is None:
+        status, user = policy.SessionStatus.MISSING, None
+    else:
+        user = store.get_by_id(claims.user_id)
+        status = policy.session_status(user, claims.session_version, claims.authenticated_utc)
+    if status is policy.SessionStatus.OK:
+        state[SESSION_USER_ID] = user.id
+        state[SESSION_VERSION] = claims.session_version
+        state[SESSION_AUTHENTICATED_UTC] = claims.authenticated_utc
+        return user
+    state[COOKIE_BLOCKED] = True
+    _schedule_cookie(st_module, ("clear",))
+    if status is not policy.SessionStatus.MISSING:
+        state[EXPIRED_NOTICE] = True
+    return None
 
 
 def require_login(st_module, settings) -> User:
@@ -75,6 +156,9 @@ def require_login(st_module, settings) -> User:
 
     store = _store(settings)
     user = current_user(st_module, settings)
+    if user is None and settings.cookie_enabled:
+        user = _restore_from_cookie(st_module, settings, store)
+    _render_cookie_action(st_module, settings)
     if user is not None:
         if user.must_change_password:
             from ads_auth.ui.account import render_forced_change
@@ -101,6 +185,7 @@ def require_login(st_module, settings) -> User:
             state[SESSION_USER_ID] = found.id
             state[SESSION_VERSION] = found.session_version
             state[SESSION_AUTHENTICATED_UTC] = db.to_iso(db.utc_now())
+            remember_session(st_module, settings)
             log(settings, "login", found)
             st_module.rerun()
         # Known account (any failure reason) -> attributed row; unknown/invalid -> anonymous row.
