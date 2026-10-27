@@ -8,14 +8,17 @@ and maintain its own copy.
 
 The package is called `ads-auth` when you install it and `ads_auth` when you import it. It needs
 Python 3.12 or newer. It depends on Werkzeug (for password hashes in the format the ADS apps share),
-tzdata (for time zones), Streamlit 1.42 or newer, and pandas. It is tested against Streamlit 1.45.1,
-Streamlit 1.50.0, and the current release.
+tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run against Streamlit
+1.52.2 and the current release; the sign-in cookie's server piece is also exercised on 1.45.1 and
+1.50.0, which still serve through Tornado.
 
 ## What the package does
 
 - **Accounts and sign-in.** Each person has a username and a password. Passwords are stored as
   hashes, never as plain text. Five failed attempts within fifteen minutes lock the account until
-  the window passes. A signed-in session lasts eight hours. Every account has a role, which is
+  the window passes. A signed-in session lasts eight hours. When the app gives the package a
+  cookie secret, reloading the page or opening a new tab within those eight hours keeps the person
+  signed in (see "Staying signed in" below). Every account has a role, which is
   `user`, `manager`, or `admin`. An administrator can give someone a temporary password, which must
   be changed at first sign-in. Accounts can be imported from another app's database, whether
   that app uses this package or keeps its accounts in a Flask-style `user` table.
@@ -153,6 +156,27 @@ is something to lose. While it does, the sidebar's Usage statistics and About li
 that only note the chosen page, and `confirm_navigation(st, settings, message)`, called right after
 `render_sidebar`, opens a dialog: the app's message, "Do you still wish to proceed?", and the buttons
 "Go back" and "Proceed". Proceed switches to the chosen page; Go back, or closing the dialog, stays.
+
+## Staying signed in
+
+A Streamlit session lives only as long as the browser tab's connection: a reload starts a new
+session, so without help the person would be back at the sign-in screen. With `cookie_secret` set,
+the gate asks the browser, right after a sign-in, to keep one HttpOnly cookie named
+`ads_auth_session`. It holds a signed token: the account's id, its `session_version`, and the
+sign-in time. A new session that arrives with the cookie is signed in again without a form and
+without a `login` event, with the original sign-in time, so the eight-hour limit still counts from
+the real sign-in. A password reset, a password change, or a deactivation ends the cookie's validity
+just as it ends the session. Signing out clears the cookie. An invalid, expired, or revoked cookie is
+cleared and the sign-in screen shows.
+
+Setting an HttpOnly cookie needs an HTTP response, which a Streamlit script cannot produce, so the
+package adds one small route to the running server (`POST /_ads_auth/cookie`, under the app's base
+URL path) and draws an invisible iframe that calls it once. The route is reached through
+Streamlit's session object, which is not public API; the package knows the Tornado server of
+Streamlit 1.57 and older and the Starlette server of 1.58 and newer. If a future Streamlit changes
+that again, sign-in still works and a reload shows the sign-in screen until the package is updated;
+one warning is logged. Each app that turns the cookie on adds a sentence about it to its
+data-handling document; the CHANGELOG entry for v1.2.0 has the wording.
 
 To add a housekeeping task, pass it to `maintenance.start_background(data_dir, db_path, extra=task)`.
 The package runs its daily pass (back up if due, remove old usage rows) and then calls `task(now)`.

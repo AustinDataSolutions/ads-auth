@@ -5,8 +5,8 @@ Framework-free modules (`db`, `models`, `hashing`, `policy`, `store`, `usage.*`,
 `preflight`, `cli`) import no Streamlit and do no I/O at import time. Streamlit adapters live
 under `ads_auth.ui`. An app supplies one `AppSettings` object; see the README.
 """
-from ads_auth.settings import AUTH_MODES, AppSettings, auth_mode_from_environ, exclude_users_from_environ
+from ads_auth.settings import AUTH_MODES, AppSettings, auth_mode_from_environ, cookie_secret_from_environ, exclude_users_from_environ
 
-__version__ = "1.1.3"
+__version__ = "1.2.0"
 
-__all__ = ["AUTH_MODES", "AppSettings", "auth_mode_from_environ", "exclude_users_from_environ", "__version__"]
+__all__ = ["AUTH_MODES", "AppSettings", "auth_mode_from_environ", "cookie_secret_from_environ", "exclude_users_from_environ", "__version__"]

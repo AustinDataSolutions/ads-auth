@@ -5,6 +5,52 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.2.0 (2026-10-26)
+
+Disclosure: affected. Each app that adopts this release and sets the cookie secret must add the
+following to its data-handling document (and refresh its "Last updated" date), in its own words
+if it prefers, keeping the facts:
+
+> When you sign in, the app places one cookie in your browser so that reloading the page or
+> opening the app in a new tab within the next eight hours does not sign you out. The cookie
+> holds your account's internal number, a version number that changes whenever your password is
+> reset or changed, the time you signed in, and a signature that lets the app check those values.
+> It holds no password and no name. It expires eight hours after you signed in, is removed when you
+> sign out, and is sent only to this app.
+
+- Staying signed in across a browser reload. After an actual sign-in the gate asks the browser to
+  keep an HttpOnly, SameSite=Lax cookie named `ads_auth_session` holding a signed token
+  (`ads_auth.tokens`: account id, `session_version`, sign-in time, HMAC-SHA256 signature). A new
+  Streamlit session that arrives with that cookie (`st.context.cookies`) is restored silently:
+  same account, same sign-in time, so the eight-hour lifetime still counts from the sign-in and a
+  password reset, a password change by the person, or a deactivation still ends it on the next
+  run. A restore logs no event; `login` is logged only for a sign-in through the form. Sign-out
+  clears the cookie and refuses to restore from it again on that connection; a cookie that is
+  expired, revoked, or not signed with the app's secret is cleared and the sign-in screen shows
+  (with "Your session ended" when it was once valid). A password change re-issues the cookie with
+  the new version.
+- `AppSettings.cookie_secret` (new, default empty, at least 32 characters, never in `repr`) signs
+  the token; empty keeps the old behaviour, so an app that sets nothing sees no change.
+  `cookie_secret_from_environ(environ)` reads `ADS_AUTH_COOKIE_SECRET`, else
+  `STREAMLIT_SERVER_COOKIE_SECRET` (already present on the hosted services). The derived signing
+  key is purpose-specific, so sharing Streamlit's secret is safe. `AppSettings.cookie_enabled`
+  says whether the feature is on; preflight prints `stay_signed_in=on|off`.
+- How the cookie is set. Streamlit offers no way to set a cookie from a script, and an HttpOnly
+  cookie can only come from an HTTP response, so `ads_auth.ui.cookie` registers one route on the
+  running server the first time it is needed, `POST <baseUrlPath>/_ads_auth/cookie`, and draws a
+  zero-height iframe whose script calls it once (with a custom request header, so a cross-site
+  form cannot). The route verifies the token's signature before setting the cookie; `Secure` is
+  added when the request came over HTTPS directly or via `X-Forwarded-Proto`. The server object
+  is reached through Streamlit's session client, which is not public API: Streamlit 1.37 to 1.57
+  serve through Tornado (`Application.add_handlers`), 1.58 and newer through Starlette
+  (`app.router.routes`). Both are implemented and tested (Tornado on 1.45.1, 1.50.0, 1.52.2;
+  Starlette on 1.66.0). On a Streamlit whose server the package does not recognise, sign-in works
+  as before, a reload shows the sign-in screen, and one warning is logged.
+- `ui.gate.remember_session(st, settings, now=False)` re-issues the cookie for the session in
+  session state; `ui.account` calls it after a password change. New session keys
+  `auth_cookie_action` and `auth_cookie_blocked`. `current_user` is unchanged and never reads the
+  request; only `require_login` restores.
+
 ## v1.1.3 (2026-10-26)
 
 Disclosure: unaffected.
