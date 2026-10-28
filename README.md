@@ -169,6 +169,13 @@ the real sign-in. A password reset, a password change, or a deactivation ends th
 just as it ends the session. Signing out clears the cookie. An invalid, expired, or revoked cookie is
 cleared and the sign-in screen shows.
 
+Because the person is signed back in without noticing, they may not realise the new session is
+empty. That happens after a reload, and also when the server restarted or dropped the connection
+while the page stayed open. In that case the page can still show an uploaded file's name, but the
+new session has no copy of it. `restored_from_cookie(st)` from `ads_auth.ui.gate` returns True for
+the whole of a session the cookie signed in. An app can use it to say that earlier uploads and
+results are gone.
+
 Setting an HttpOnly cookie needs an HTTP response, which a Streamlit script cannot produce, so the
 package adds one small route to the running server (`POST /_ads_auth/cookie`, under the app's base
 URL path) and draws an invisible iframe that calls it once. The route is reached through

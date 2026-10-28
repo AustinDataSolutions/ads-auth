@@ -7,6 +7,6 @@ under `ads_auth.ui`. An app supplies one `AppSettings` object; see the README.
 """
 from ads_auth.settings import AUTH_MODES, AppSettings, auth_mode_from_environ, cookie_secret_from_environ, exclude_users_from_environ
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 __all__ = ["AUTH_MODES", "AppSettings", "auth_mode_from_environ", "cookie_secret_from_environ", "exclude_users_from_environ", "__version__"]

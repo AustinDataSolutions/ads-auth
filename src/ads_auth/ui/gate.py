@@ -16,6 +16,7 @@ EXPIRED_NOTICE = "auth_expired_notice"
 PENDING_PAGE = "auth_pending_page"      # page name chosen in the sidebar while `confirm_leave` held
 COOKIE_ACTION = "auth_cookie_action"    # ("set", token) or ("clear",): what the browser is asked to do with the sign-in cookie
 COOKIE_BLOCKED = "auth_cookie_blocked"  # after sign-out or a rejected cookie: the cookie this websocket connected with is stale
+RESTORED = "auth_restored_from_cookie"  # this session was signed in by the cookie, not the sign-in form
 LEAVE_QUESTION = "Do you still wish to proceed?"
 INVALID_LOGIN_MESSAGE = "Sign-in was not accepted. Check your username and password and try again."
 SETUP_MESSAGE = "This app has no accounts yet. The administrator must create the first account before anyone can sign in."
@@ -137,12 +138,24 @@ def _restore_from_cookie(st_module, settings, store: UserStore) -> User | None:
         state[SESSION_USER_ID] = user.id
         state[SESSION_VERSION] = claims.session_version
         state[SESSION_AUTHENTICATED_UTC] = claims.authenticated_utc
+        state[RESTORED] = True
         return user
     state[COOKIE_BLOCKED] = True
     _schedule_cookie(st_module, ("clear",))
     if status is not policy.SessionStatus.MISSING:
         state[EXPIRED_NOTICE] = True
     return None
+
+
+def restored_from_cookie(st_module) -> bool:
+    """Whether the sign-in cookie, not the sign-in form, signed this session in.
+
+    True for the rest of a session that began by restoring from the cookie: a page reload, a new
+    tab, or a browser that reconnected after the server restarted or dropped its connection. Such a
+    session starts empty, so an app can say that uploads and results from before are not here. A
+    sign-in through the form clears it (with the rest of session state); so does signing out.
+    """
+    return bool(st_module.session_state.get(RESTORED))
 
 
 def require_login(st_module, settings) -> User:

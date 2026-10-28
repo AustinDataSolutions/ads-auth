@@ -228,7 +228,7 @@ from datetime import timedelta
 from ads_auth import tokens
 from ads_auth.db import to_iso, utc_now
 from ads_auth.ui import cookie
-from ads_auth.ui.gate import COOKIE_BLOCKED, SESSION_AUTHENTICATED_UTC
+from ads_auth.ui.gate import COOKIE_BLOCKED, RESTORED, SESSION_AUTHENTICATED_UTC
 
 SECRET = "demo-cookie-secret-of-32-characters!"
 
@@ -276,6 +276,20 @@ def test_a_reload_with_the_cookie_restores_the_session_without_a_login_event(env
     assert _events(env) == [("pat", "login")]                   # the restore is not a sign-in
     again.text_input(key="search").input("q").run()
     assert _events(env) == [("pat", "login"), ("pat", "search")]
+
+
+def test_only_a_session_the_cookie_signed_in_reports_itself_restored(env, remembered):
+    actions, jar = remembered
+    UserStore(env).create_user("pat", password=PW)
+    first = _login(_app(), "pat", PW)
+    assert RESTORED not in first.session_state                 # signed in through the form
+    jar[tokens.COOKIE_NAME] = _set_token(actions)
+    again = _app()                                              # the reload, or a reconnect to a new session
+    assert again.session_state[RESTORED] is True
+    again.text_input(key="search").input("q").run()
+    assert again.session_state[RESTORED] is True                # holds for the rest of the session
+    again.button(key="logout_button").click().run()
+    assert RESTORED not in again.session_state                  # sign-out clears it with everything else
 
 
 def test_sign_out_clears_the_cookie_and_blocks_a_restore_on_this_connection(env, remembered):

@@ -5,6 +5,17 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.2.1 (2026-10-28)
+
+Disclosure: unaffected.
+
+- `ui.gate.restored_from_cookie(st)` says whether the sign-in cookie, rather than the sign-in form,
+  signed the current session in. That covers a reload, a new tab, and a browser that reconnected
+  after the server restarted or dropped its connection. Such a session starts empty, so an app can
+  tell the person that earlier uploads and results are gone. Without this, a file name left in the
+  page's upload box looks loaded when it is not. It is stored in session state under the new key
+  `auth_restored_from_cookie`, set only by a cookie restore and cleared by a form sign-in or sign-out.
+
 ## v1.2.0 (2026-10-26)
 
 Disclosure: affected. Each app that adopts this release and sets the cookie secret must add the
