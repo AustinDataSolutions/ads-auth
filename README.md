@@ -56,6 +56,7 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
 | `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the weekly and monthly active-user figures, and the CSV exports. |
 | `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
+| `ads_auth.ui.reconnect` | `keep_sessions_on_reconnect()`, which lets a browser tab whose connection dropped rejoin its own session instead of starting an empty one. "Staying signed in" below explains it. |
 | `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
 | `ads_auth.ui.reports`, `ui.about` | The Usage statistics page and the About page. |
 | `ads_auth.maintenance` | The daily backup, the removal of old usage rows, the loop that runs them in the background, and the hook for an app's own task. |
@@ -175,6 +176,19 @@ while the page stayed open. In that case the page can still show an uploaded fil
 new session has no copy of it. `restored_from_cookie(st)` from `ads_auth.ui.gate` returns True for
 the whole of a session the cookie signed in. An app can use it to say that earlier uploads and
 results are gone.
+
+Often that empty session is avoidable. When a page loses its connection it reconnects and names the
+session it had. If the server has already seen the old connection close, Streamlit reattaches the
+session within its two-minute window. If the server has not noticed yet, which happens when a proxy
+keeps the server's side of a dead connection open (a laptop that slept, a dropped Wi-Fi link),
+Streamlit logs "Session with id ... is already connected! Connecting to a new session." and gives
+the page an empty session, leaving the old one unreachable in memory. Calling
+`keep_sessions_on_reconnect()` from `ads_auth.ui.reconnect` once per process, at the top of the
+app's router, changes that: the page gets its own session back, the old connection is closed, and
+the server logs "A browser tab reconnected and rejoined its session." This is safe because the
+browser keeps the session id only in the open page's memory; a reload or a duplicated tab never
+sends one. It reaches into Streamlit's session manager, which is not public API, and leaves
+Streamlit's behavior alone whenever it does not recognise the old connection.
 
 Setting an HttpOnly cookie needs an HTTP response, which a Streamlit script cannot produce, so the
 package adds one small route to the running server (`POST /_ads_auth/cookie`, under the app's base

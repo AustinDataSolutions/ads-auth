@@ -5,6 +5,20 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.3.0 (2026-10-29)
+
+Disclosure: unaffected. Nothing new is stored, sent, or kept: the session a reconnecting tab gets
+back was already held in memory; before, the tab just could not reach it.
+
+- `ui.reconnect.keep_sessions_on_reconnect()` lets a browser tab whose connection dropped rejoin
+  its own session. Without it, a page that reconnects before the server has noticed the old
+  connection is gone (a sleeping laptop behind Render's proxy, for example) gets a new, empty
+  session, and the old one, upload and results included, stays in memory where nothing can reach
+  it. With it, the old connection is closed and the page keeps its session; the server logs
+  "A browser tab reconnected and rejoined its session." Call it once at the top of the app's
+  router. It patches Streamlit's `WebsocketSessionManager.connect_session` and leaves Streamlit's
+  behavior in place for any connection it does not recognise.
+
 ## v1.2.1 (2026-10-28)
 
 Disclosure: unaffected.
