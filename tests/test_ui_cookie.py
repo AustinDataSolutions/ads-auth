@@ -201,8 +201,18 @@ def test_starlette_clear_and_bad_requests(starlette_app):
     assert status == 204 and morsel.value == "" and (morsel["max-age"] == "0" or morsel["expires"])
     status, headers = _asgi_post(starlette_app, json.dumps({"token": _token()}).encode(), {})
     assert status == 400 and "set-cookie" not in dict(headers)
-    status, _ = _asgi_post(starlette_app, b"", {}, method="GET")
-    assert status == 405
+
+
+def test_starlette_get_never_reaches_the_endpoint(starlette_app):
+    # Starlette prefers a route matching path and method over one matching the path alone, so a GET
+    # falls through to the app's own routes (Streamlit's page fallback), and 405 only without one.
+    status, headers = _asgi_post(starlette_app, b"", {}, method="GET")
+    assert status == 200 and "set-cookie" not in dict(headers) and "cache-control" not in dict(headers)
+    from starlette.applications import Starlette
+    bare = Starlette()
+    cookie._register_starlette(bare, "/_ads_auth/cookie", SECRET)
+    status, headers = _asgi_post(bare, b"", {}, method="GET")
+    assert status == 405 and dict(headers)["allow"] == "POST"
 
 
 def test_starlette_route_is_tried_before_the_catch_all(starlette_app):
