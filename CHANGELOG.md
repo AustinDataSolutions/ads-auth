@@ -5,6 +5,22 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.3.1 (2026-10-29)
+
+Disclosure: affected. A session whose connection closed is now released when Streamlit's hold on it
+(`server.disconnectedSessionTTL`) ends, plus up to a minute: its uploaded files and prepared
+downloads leave the server's memory then. Before, Streamlit forgot the session but kept those in
+memory until the server restarted. An app that adopts this release should say how long a session
+someone left is kept, for example:
+
+> If you close the page or lose your connection, your upload and results stay in the server's
+> memory for up to N minutes, so a page that reconnects can carry on, and are then discarded.
+
+- `ui.reconnect.keep_sessions_on_reconnect()` also replaces the cache in Streamlit's
+  `MemorySessionStorage` with one that shuts each session down (`AppSession.shutdown()`) when it
+  expires or is evicted. It checks once a minute on the server's event loop. Requires
+  `cachetools>=5.4`, whose `TTLCache.expire()` returns what it removed.
+
 ## v1.3.0 (2026-10-29)
 
 Disclosure: unaffected. Nothing new is stored, sent, or kept: the session a reconnecting tab gets

@@ -83,3 +83,84 @@ def test_the_installed_session_manager_rejoins_and_installing_twice_wraps_once(m
     assert session_id == "s-1"
     assert manager.get_active_session_info("s-1").client is new
     assert old.closed
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class HeldSession(Session):
+    def __init__(self, session_id):
+        super().__init__(session_id)
+        self.shut_down = False
+
+    def shutdown(self):
+        self.shut_down = True
+
+
+def held(storage, session_id):
+    from streamlit.runtime.session_manager import SessionInfo
+
+    info = SessionInfo(client=None, session=HeldSession(session_id))
+    storage.save(info)
+    return info.session
+
+
+@pytest.fixture
+def storage():
+    from cachetools import TTLCache
+
+    clock = Clock()
+    storage = MemorySessionStorage()
+    storage._cache = TTLCache(maxsize=4, ttl=3600, timer=clock)
+    assert reconnect.release_on_expiry(storage)
+    return storage, clock
+
+
+def test_a_held_session_is_shut_down_when_its_hold_ends_and_not_before(storage):
+    storage, clock = storage
+    session = held(storage, "away")
+    clock.now = 3599
+    storage._cache.expire()
+    assert not session.shut_down and storage.get("away").session is session
+    clock.now = 3601
+    storage._cache.expire()
+    assert session.shut_down and storage.get("away") is None
+
+
+def test_a_later_save_releases_sessions_whose_hold_ended(storage):
+    storage, clock = storage
+    first = held(storage, "first")
+    clock.now = 4000
+    held(storage, "second")
+    assert first.shut_down
+
+
+def test_a_session_that_reconnects_in_time_is_not_shut_down(storage):
+    storage, clock = storage
+    session = held(storage, "back")
+    clock.now = 600
+    assert storage.get("back").session is session
+    storage.delete("back")
+    clock.now = 5000
+    storage._cache.expire()
+    assert not session.shut_down
+
+
+def test_a_full_store_shuts_down_the_session_it_evicts(storage):
+    storage, _clock = storage
+    sessions = [held(storage, f"s{i}") for i in range(5)]
+    assert sessions[0].shut_down and not any(s.shut_down for s in sessions[1:])
+
+
+def test_release_on_expiry_keeps_held_sessions_and_installs_once():
+    storage = MemorySessionStorage(ttl_seconds=3600)
+    session = held(storage, "kept")
+    assert reconnect.release_on_expiry(storage)
+    cache = storage._cache
+    assert reconnect.release_on_expiry(storage) and storage._cache is cache
+    assert storage.get("kept").session is session

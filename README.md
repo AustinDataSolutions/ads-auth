@@ -190,6 +190,15 @@ browser keeps the session id only in the open page's memory; a reload or a dupli
 sends one. It reaches into Streamlit's session manager, which is not public API, and leaves
 Streamlit's behavior alone whenever it does not recognise the old connection.
 
+Once the server has seen a connection close, Streamlit holds the session for
+`server.disconnectedSessionTTL` seconds (two minutes unless the app's `.streamlit/config.toml` says
+otherwise) in case the page comes back. When that hold ends, Streamlit itself only forgets the
+session: its uploaded files and prepared downloads stay in the server's memory until a restart.
+`keep_sessions_on_reconnect()` also fixes that. It checks once a minute and shuts each expired
+session down the way closing it would, which releases those files. The server logs "Released a
+disconnected session after its hold ended." So an app can tell its users how long a session they
+left is kept: the hold, plus up to a minute.
+
 Setting an HttpOnly cookie needs an HTTP response, which a Streamlit script cannot produce, so the
 package adds one small route to the running server (`POST /_ads_auth/cookie`, under the app's base
 URL path) and draws an invisible iframe that calls it once. The route is reached through

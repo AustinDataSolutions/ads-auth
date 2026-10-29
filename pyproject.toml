@@ -14,6 +14,7 @@ dependencies = [
     "werkzeug>=3.1",
     "tzdata",
     "streamlit>=1.52",
+    "cachetools>=5.4",  # TTLCache.expire() returns what it removed; ui.reconnect shuts those sessions down
     "pandas",
 ]
 
