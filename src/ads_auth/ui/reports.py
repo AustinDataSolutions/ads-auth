@@ -85,13 +85,13 @@ def render(st_module, settings, user: User) -> None:
         } for r in reversed(rows)])                     # newest period first
 
     st_module.subheader("Monthly active users")
-    st_module.dataframe(frame(monthly), hide_index=True, use_container_width=True)
+    st_module.dataframe(frame(monthly), hide_index=True, width="stretch")
     st_module.subheader("Weekly active users")
-    st_module.dataframe(frame(weekly), hide_index=True, use_container_width=True)
+    st_module.dataframe(frame(weekly), hide_index=True, width="stretch")
     st_module.subheader("Per user")
     st_module.dataframe(pd.DataFrame([{
         "User": r.username, "Logins": r.logins, **{labels[name]: r.counts[name] for name in names},
-    } for r in per_user]), hide_index=True, use_container_width=True)
+    } for r in per_user]), hide_index=True, width="stretch")
 
     st_module.subheader("Downloads")
     stamp = date.today().isoformat()

@@ -78,6 +78,8 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
     reports.render(st, settings, _user("manager"))
     assert st.of("caption")[0][1][0] == reports.DEFINITIONS            # no app-specific wording declared
     assert len(st.of("dataframe")) == 3
+    # Streamlit drops use_container_width after 2025-12-31; the tables fill the page with width="stretch"
+    assert all(call[2].get("width") == "stretch" and "use_container_width" not in call[2] for call in st.of("dataframe"))
     downloads = st.of("download_button")
     assert len(downloads) == 3
     stamp = date.today().isoformat()

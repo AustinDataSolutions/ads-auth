@@ -5,6 +5,14 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.3.2 (2026-10-30)
+
+Disclosure: unaffected. Display only.
+
+- The Usage statistics tables size themselves with `width="stretch"` instead of
+  `use_container_width=True`, which Streamlit deprecated (removal after 2025-12-31) and warned about
+  on every render.
+
 ## v1.3.1 (2026-10-29)
 
 Disclosure: affected. A session whose connection closed is now released when Streamlit's hold on it
