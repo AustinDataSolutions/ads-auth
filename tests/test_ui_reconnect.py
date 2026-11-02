@@ -110,13 +110,12 @@ def held(storage, session_id):
     return info.session
 
 
-@pytest.fixture
-def storage():
-    from cachetools import TTLCache
-
+@pytest.fixture(params=reconnect.SESSION_CACHE_TYPES, ids=lambda cache_type: cache_type.__module__)
+def storage(request):
+    """A held-session store on each cache class the installed Streamlit may use."""
     clock = Clock()
     storage = MemorySessionStorage()
-    storage._cache = TTLCache(maxsize=4, ttl=3600, timer=clock)
+    storage._cache = request.param(maxsize=4, ttl=3600, timer=clock)
     assert reconnect.release_on_expiry(storage)
     return storage, clock
 
@@ -158,9 +157,17 @@ def test_a_full_store_shuts_down_the_session_it_evicts(storage):
 
 
 def test_release_on_expiry_keeps_held_sessions_and_installs_once():
+    # The installed Streamlit's own storage, whichever cache class it builds
     storage = MemorySessionStorage(ttl_seconds=3600)
     session = held(storage, "kept")
     assert reconnect.release_on_expiry(storage)
     cache = storage._cache
     assert reconnect.release_on_expiry(storage) and storage._cache is cache
     assert storage.get("kept").session is session
+
+
+def test_a_store_on_an_unknown_cache_is_left_to_streamlit():
+    storage = MemorySessionStorage()
+    storage._cache = {}
+    assert not reconnect.release_on_expiry(storage)
+    assert storage._cache == {}

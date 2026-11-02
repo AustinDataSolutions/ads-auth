@@ -5,6 +5,17 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.3.3 (2026-11-02)
+
+Disclosure: unaffected. Restores on newer Streamlit what v1.3.1 already disclosed: a session someone
+left is released when its hold ends. Nothing new is stored, sent, or kept.
+
+- `ui.reconnect.keep_sessions_on_reconnect()` also releases disconnected sessions on Streamlit
+  releases that keep held sessions in Streamlit's own `TTLCache` instead of cachetools' (1.66 does).
+  Before, it logged "Streamlit's session storage changed" there and held each session's files until a
+  restart. `SESSION_CACHE_TYPES` lists the cache classes it handles; any other storage is left to
+  Streamlit, as before.
+
 ## v1.3.2 (2026-10-30)
 
 Disclosure: unaffected. Display only.

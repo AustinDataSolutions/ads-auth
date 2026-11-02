@@ -24,6 +24,17 @@ from __future__ import annotations
 from cachetools import TTLCache
 from streamlit.logger import get_logger
 
+# The cache classes MemorySessionStorage keeps held sessions in: cachetools' through Streamlit 1.5x,
+# and Streamlit's own drop-in replacement in later releases (1.66 has it). Both share the methods
+# the releasing cache overrides.
+SESSION_CACHE_TYPES: tuple[type, ...] = (TTLCache,)
+try:
+    from streamlit.runtime.caching.ttl_cache import TTLCache as _StreamlitTTLCache
+except ImportError:
+    pass
+else:
+    SESSION_CACHE_TYPES += (_StreamlitTTLCache,)
+
 # Streamlit's logger, so the line lands in the server log beside Streamlit's own reconnect lines.
 LOGGER = get_logger(__name__)
 _MARK = "_ads_auth_rejoins"
@@ -79,8 +90,8 @@ def _shut_down(info) -> None:
         LOGGER.info("Released a disconnected session after its hold ended.")
 
 
-class _ReleasingCache(TTLCache):
-    """Streamlit's held-session cache, shutting each session down as it leaves."""
+class _Releasing:
+    """Mixed into Streamlit's held-session cache class: shuts each session down as it leaves."""
 
     def expire(self, time=None):
         expired = super().expire(time)
@@ -94,14 +105,24 @@ class _ReleasingCache(TTLCache):
         return session_id, info
 
 
+_RELEASING_TYPES: dict[type, type] = {}
+
+
+def _releasing_type(cache_type: type) -> type:
+    """The releasing subclass of one of SESSION_CACHE_TYPES, made once."""
+    if cache_type not in _RELEASING_TYPES:
+        _RELEASING_TYPES[cache_type] = type(f"Releasing{cache_type.__name__}", (_Releasing, cache_type), {})
+    return _RELEASING_TYPES[cache_type]
+
+
 def release_on_expiry(storage) -> bool:
     """Make a MemorySessionStorage shut sessions down when their hold ends. Run on the event loop."""
     cache = getattr(storage, "_cache", None)
-    if isinstance(cache, _ReleasingCache):
+    if isinstance(cache, _Releasing):
         return True
-    if not isinstance(cache, TTLCache):
+    if type(cache) not in SESSION_CACHE_TYPES:
         return False
-    releasing = _ReleasingCache(maxsize=cache.maxsize, ttl=cache.ttl, timer=cache.timer)
+    releasing = _releasing_type(type(cache))(maxsize=cache.maxsize, ttl=cache.ttl, timer=cache.timer)
     for session_id, info in list(cache.items()):
         releasing[session_id] = info
     storage._cache = releasing
