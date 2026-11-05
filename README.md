@@ -27,10 +27,11 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   an upload. A row holds only the time, the account name, and the kind of event. It never holds
   what the person typed, uploaded, or searched for. Rows older than thirteen months are deleted
   automatically.
-- **A Usage statistics page.** Managers and administrators can see how many people were active in
-  each week and each month, totals for each person, and can download the figures as CSV files. One
-  of those files has the same four columns in every app, so exports from different apps can be
-  combined into one spreadsheet.
+- **A Usage statistics page.** Managers and administrators can see who has the app open right now,
+  how many people were active each day, week and month, and totals for each person, and can
+  download the figures as CSV files. One of those files has the same four columns in every app, so
+  exports from different apps can be combined into one spreadsheet. Who has the app open is read
+  from the server's memory when the page is shown; it is never stored.
 - **An About page.** The app points the package at its own data-handling document, and the About
   page shows that document to users exactly as written.
 - **Housekeeping.** Once a day the package makes a backup of the database, keeping the seven most
@@ -54,11 +55,11 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.settings` | `AppSettings`, the object an app fills in to describe itself. The next section explains it. |
 | `ads_auth.db` | Opening the SQLite database and applying schema changes. The changes are numbered and safe to apply more than once. |
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
-| `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the weekly and monthly active-user figures, and the CSV exports. |
+| `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the daily, weekly and monthly active-user figures, and the CSV exports. |
 | `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
 | `ads_auth.ui.reconnect` | `keep_sessions_on_reconnect()`, which lets a browser tab whose connection dropped rejoin its own session instead of starting an empty one. "Staying signed in" below explains it. |
 | `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
-| `ads_auth.ui.reports`, `ui.about` | The Usage statistics page and the About page. |
+| `ads_auth.ui.reports`, `ui.about`, `ui.live_sessions` | The Usage statistics page (with who has the app open now) and the About page. |
 | `ads_auth.maintenance` | The daily backup, the removal of old usage rows, the loop that runs them in the background, and the hook for an app's own task. |
 | `ads_auth.preflight` | The startup checks. When they pass, a `serving.lock` file is written so operator commands know the app is running. |
 | `ads_auth.cli` | The operator commands listed above, plus any the app adds. |
@@ -107,6 +108,8 @@ The fields mean the following.
 - `is_render` is true when the app is running on Render, the hosting service the ADS apps use.
 - `usage_exclude_users` lists accounts, such as test accounts, that the Usage statistics page leaves
   out unless a manager puts them back.
+- `usage_since` is the earliest day the Usage statistics page's date range starts on by default, such
+  as the day accounts went live. The default range is the last twelve months.
 - `events` lists the actions the app records. The section on recording what people do explains how
   to choose them. Two related fields, `activity_events` and `definitions`, are explained there too.
 - `pages` is filled in by the app's router, as shown below, so the package's pages can link to each

@@ -5,6 +5,28 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.4.0 (2026-11-05)
+
+Disclosure: affected. The Usage statistics page now shows managers and administrators who has the
+app open right now. It is read from the server's memory when the page is shown and is not stored or
+logged. An app that adopts this release should say so, for example:
+
+> Managers and administrators can also see who has the app open at the moment, so a restart doesn't
+> catch anyone by surprise. That list is read from the server's memory when they look, and is not
+> recorded.
+
+- The Usage statistics page opens with who else has the app open on this server: each signed-in
+  person's name, whether their page is open, working, or closed and held
+  (`server.disconnectedSessionTTL`), and pages still on the sign-in screen. Loud (a warning) when
+  anyone else is there, so a restart or deploy doesn't end someone's work unannounced.
+  `ui.live_sessions.open_sessions(settings)` reads Streamlit's session manager and returns
+  `OpenSession` rows; it returns nothing outside a running server or if Streamlit moves its
+  internals.
+- A Daily active users table, after the weekly one; the aggregates CSV includes its rows with
+  `period_type` `day`. `usage.reports.active_users_by_period` accepts `kind="day"`.
+- `AppSettings.usage_since`: the earliest day the page's date range starts on by default (the range
+  is still the last twelve months, but never starts before this day). None keeps the old default.
+
 ## v1.3.3 (2026-11-02)
 
 Disclosure: unaffected. Restores on newer Streamlit what v1.3.1 already disclosed: a session someone

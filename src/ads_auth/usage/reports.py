@@ -1,4 +1,4 @@
-"""Weekly and monthly active users, per-user totals, and CSV exports.
+"""Daily, weekly and monthly active users, per-user totals, and CSV exports.
 
 Storage is UTC; display periods are computed in America/New_York. Events are
 few (thousands per year), so aggregation happens in Python after one query.
@@ -38,7 +38,7 @@ def per_user_header(events: Sequence[str] = ()) -> list[str]:
 
 @dataclass(frozen=True)
 class PeriodRow:
-    period_type: str      # "week" | "month"
+    period_type: str      # "day" | "week" | "month"
     period_start: date    # inclusive, local
     period_end: date      # inclusive, local
     active_users: int
@@ -98,9 +98,9 @@ def _fetch(conn: sqlite3.Connection, start: date, end: date, exclude=None) -> li
 
 
 def _periods(start: date, end: date, kind: str):
-    cur = week_start(start) if kind == "week" else month_start(start)
+    cur = {"day": start, "week": week_start(start), "month": month_start(start)}[kind]
     while cur <= end:
-        nxt = cur + timedelta(days=7) if kind == "week" else next_month(cur)
+        nxt = {"day": cur + timedelta(days=1), "week": cur + timedelta(days=7), "month": next_month(cur)}[kind]
         yield cur, nxt - timedelta(days=1)
         cur = nxt
 
@@ -114,8 +114,8 @@ def active_users_by_period(
     `events` are the app's declared names to count; `activity` the subset that makes an account active
     (None: all of `events`). Consuming apps pass `settings.events` and `settings.activity_events`.
     """
-    if kind not in ("week", "month"):
-        raise ValueError("kind must be 'week' or 'month'")
+    if kind not in ("day", "week", "month"):
+        raise ValueError("kind must be 'day', 'week' or 'month'")
     today = (now or utc_now()).astimezone(DISPLAY_TZ).date()
     active_names = _activity(events, activity)
     rows = _fetch(conn, start, end, exclude)

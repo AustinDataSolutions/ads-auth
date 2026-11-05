@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from ads_auth.tokens import MIN_SECRET_LENGTH
@@ -54,6 +55,9 @@ class AppSettings:
     auth_mode:           `required` or `disabled`
     is_render:           True when running on Render; `disabled` is refused there
     usage_exclude_users: accounts the statistics page excludes by default
+    usage_since:         the earliest day the statistics page's date range starts on by default, such as
+                         the day accounts went live. The default range is the last twelve months; with
+                         this set, it starts no earlier than this day. None (default): no floor.
     events:              the app's own usage event names (lowercase slugs such as `upload`, `process`), in the
                          order the statistics page and CSV exports show them. The package owns the core names
                          `login`, `login_failed`, and `logout`; an app may not redeclare them. Every name an
@@ -76,6 +80,7 @@ class AppSettings:
     auth_mode: str = "required"
     is_render: bool = False
     usage_exclude_users: tuple[str, ...] = ()
+    usage_since: date | None = None
     events: tuple[str, ...] = ()
     activity_events: tuple[str, ...] | None = None
     definitions: str = ""

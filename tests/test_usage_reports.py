@@ -116,7 +116,7 @@ def test_aggregate_csv_shape():
 
 def test_invalid_kind(conn):
     with pytest.raises(ValueError):
-        reports.active_users_by_period(conn, date(2026, 1, 1), date(2026, 1, 2), "day")
+        reports.active_users_by_period(conn, date(2026, 1, 1), date(2026, 1, 2), "year")
 
 
 def test_exclusions_apply_to_periods_totals_and_combined_csv(tmp_path):
@@ -138,3 +138,16 @@ def test_exclusions_apply_to_periods_totals_and_combined_csv(tmp_path):
         csv_text = _reports.combined_events_csv(conn, "demo-app", exclude={"ops-test"})
         assert "ops-test" not in csv_text and csv_text.count("pat") == 2
         assert _reports.active_users_by_period(conn, date(2026, 10, 1), date(2026, 10, 31), "month")[0].active_users == 2
+
+
+def test_daily_active_users(conn):
+    log(conn, "login", user=A, now=datetime(2026, 10, 13, 15, tzinfo=timezone.utc))
+    log(conn, "upload", user=B, now=datetime(2026, 10, 13, 16, tzinfo=timezone.utc))
+    log(conn, "search", user=A, now=datetime(2026, 10, 15, 3, tzinfo=timezone.utc))   # 11 pm Eastern on the 14th
+    rows = reports.active_users_by_period(conn, date(2026, 10, 13), date(2026, 10, 15), "day", now=T0, events=EVENTS)
+    assert [(r.period_start, r.period_end, r.active_users, r.complete) for r in rows] == [
+        (date(2026, 10, 13), date(2026, 10, 13), 2, True),
+        (date(2026, 10, 14), date(2026, 10, 14), 1, True),
+        (date(2026, 10, 15), date(2026, 10, 15), 0, False),
+    ]
+    assert rows[0].period_type == "day"
