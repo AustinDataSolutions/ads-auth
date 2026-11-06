@@ -151,3 +151,26 @@ def test_daily_active_users(conn):
         (date(2026, 10, 15), date(2026, 10, 15), 0, False),
     ]
     assert rows[0].period_type == "day"
+
+
+def test_xlsx_workbook_has_data_and_about_sheets_and_never_writes_formulas():
+    import io
+
+    from openpyxl import load_workbook
+    row = reports.PeriodRow("month", date(2026, 10, 1), date(2026, 10, 31), 2, 3, {"search": 4}, True)
+    data = reports.xlsx_workbook(reports.aggregate_header(("search",)), reports.aggregate_rows([row], ("search",)),
+                                 [("Source app", "Demo (demo)"), ("Excluded accounts", "=HYPERLINK(\"x\")")])
+    book = load_workbook(io.BytesIO(data))
+    assert book.sheetnames == ["Data", "About this report"]
+    sheet = book["Data"]
+    assert [c.value for c in sheet[1]] == ["period_type", "period_start", "period_end", "active_users", "logins", "search", "complete"]
+    assert [c.value for c in sheet[2]] == ["month", datetime(2026, 10, 1), datetime(2026, 10, 31), 2, 3, 4, "yes"]
+    assert sheet["B2"].number_format == "yyyy-mm-dd" and sheet.freeze_panes == "A2" and sheet.auto_filter.ref == "A1:G2"
+    about = book["About this report"]
+    assert about["B3"].value == "=HYPERLINK(\"x\")" and about["B3"].data_type == "s"   # text, not a formula
+
+
+def test_per_user_rows_feed_csv_and_xlsx_alike():
+    rows = [reports.UserRow("=cmd", 1, {"search": 2})]
+    assert reports.per_user_rows(rows, ("search",)) == [("=cmd", 1, 2)]
+    assert reports.per_user_csv(rows, ("search",)) == "username,logins,search\n=cmd,1,2\n"

@@ -1,4 +1,4 @@
-"""Daily, weekly and monthly active users, per-user totals, and CSV exports.
+"""Daily, weekly and monthly active users, per-user totals, and CSV and Excel exports.
 
 Storage is UTC; display periods are computed in America/New_York. Events are
 few (thousands per year), so aggregation happens in Python after one query.
@@ -156,25 +156,92 @@ def _csv(header: list[str], rows) -> str:
     return buf.getvalue()
 
 
+def combined_events_rows(conn: sqlite3.Connection, app_name: str, exclude=None) -> list[tuple]:
+    """(ts_utc, app, username, event) for every stored event, oldest first, excluded accounts left out."""
+    excluded = set(exclude or ())
+    rows = conn.execute("SELECT ts_utc, username, event FROM usage_events ORDER BY ts_utc, id").fetchall()
+    return [(r["ts_utc"], app_name, r["username"] or "", r["event"]) for r in rows if r["username"] not in excluded]
+
+
+def aggregate_rows(rows: list[PeriodRow], events: Sequence[str] = ()) -> list[tuple]:
+    """One tuple per period in `aggregate_header(events)` order; dates stay `date`s."""
+    return [
+        (r.period_type, r.period_start, r.period_end, r.active_users, r.logins,
+         *(r.counts.get(name, 0) for name in events), "yes" if r.complete else "no")
+        for r in rows
+    ]
+
+
+def per_user_rows(rows: list[UserRow], events: Sequence[str] = ()) -> list[tuple]:
+    """One tuple per account in `per_user_header(events)` order."""
+    return [(r.username, r.logins, *(r.counts.get(name, 0) for name in events)) for r in rows]
+
+
+def _iso(rows):
+    return ([v.isoformat() if isinstance(v, date) else v for v in row] for row in rows)
+
+
 def combined_events_csv(conn: sqlite3.Connection, app_name: str, exclude=None) -> str:
     """Exactly ts_utc,app,username,event so exports from every ADS app concatenate.
 
     `app_name` fills the `app` column; consuming apps pass `settings.app_name`.
     """
-    excluded = set(exclude or ())
-    rows = conn.execute("SELECT ts_utc, username, event FROM usage_events ORDER BY ts_utc, id").fetchall()
-    return _csv(COMBINED_HEADER, ((r["ts_utc"], app_name, r["username"] or "", r["event"]) for r in rows if r["username"] not in excluded))
+    return _csv(COMBINED_HEADER, combined_events_rows(conn, app_name, exclude))
 
 
 def aggregate_csv(rows: list[PeriodRow], events: Sequence[str] = ()) -> str:
     """Header `period_type,period_start,period_end,active_users,logins,<one column per event>,complete`."""
-    return _csv(aggregate_header(events), (
-        (r.period_type, r.period_start.isoformat(), r.period_end.isoformat(),
-         r.active_users, r.logins, *(r.counts.get(name, 0) for name in events), "yes" if r.complete else "no")
-        for r in rows
-    ))
+    return _csv(aggregate_header(events), _iso(aggregate_rows(rows, events)))
 
 
 def per_user_csv(rows: list[UserRow], events: Sequence[str] = ()) -> str:
     """Header `username,logins,<one column per event>`."""
-    return _csv(per_user_header(events), ((r.username, r.logins, *(r.counts.get(name, 0) for name in events)) for r in rows))
+    return _csv(per_user_header(events), per_user_rows(rows, events))
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+DATA_SHEET = "Data"
+ABOUT_SHEET = "About this report"
+
+
+def _cell(sheet, row: int, column: int, value):
+    cell = sheet.cell(row=row, column=column, value=value)
+    if isinstance(value, str) and value.startswith("="):
+        cell.data_type = "s"                  # text from accounts or settings, never a formula
+    elif isinstance(value, date):
+        cell.number_format = "yyyy-mm-dd"
+    return cell
+
+
+def _fill(sheet, header: Sequence[str], rows) -> None:
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    widths = [len(str(h)) for h in header]
+    for c, h in enumerate(header, start=1):
+        _cell(sheet, 1, c, h).font = Font(bold=True)
+    for r, row in enumerate(rows, start=2):
+        for c, value in enumerate(row, start=1):
+            _cell(sheet, r, c, value)
+            shown = 10 if isinstance(value, date) else len(str(value))
+            widths[c - 1] = max(widths[c - 1], shown)
+    for c, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(c)].width = min(max(width + 2, 8), 60)
+    sheet.freeze_panes = "A2"
+
+
+def xlsx_workbook(header: Sequence[str], rows, about: Sequence[tuple[str, str]]) -> bytes:
+    """A two-sheet workbook: `Data` holds `header` and `rows` (the same columns as the CSV), and
+    `About this report` holds the `about` (field, value) pairs that say where the figures came from."""
+    from openpyxl import Workbook
+
+    book = Workbook()
+    data = book.active
+    data.title = DATA_SHEET
+    _fill(data, list(header), list(rows))
+    if data.max_row > 1:
+        data.auto_filter.ref = data.dimensions
+    _fill(book.create_sheet(ABOUT_SHEET), ["Field", "Value"], list(about))
+    buf = io.BytesIO()
+    book.save(buf)
+    return buf.getvalue()

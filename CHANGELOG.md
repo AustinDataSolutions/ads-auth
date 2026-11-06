@@ -5,6 +5,30 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.5.0 (2026-11-06)
+
+Disclosure: affected. The Usage statistics page's downloads are now Excel workbooks whose second
+sheet records who downloaded the file and when, alongside the app and the filters used. Nothing new
+is stored in the app's database or logged; the name and time go only into the downloaded file. An
+app that adopts this release should say so, for example:
+
+> Downloads from the Usage statistics page are Excel files that also record which manager or
+> administrator downloaded them and when, so a shared copy can be traced back to its source.
+
+- The page's three downloads (Aggregates, Per user, All events) are `.xlsx` workbooks instead of
+  `.csv` files. The `Data` sheet keeps the CSV's columns and machine headers; period dates are real
+  dates. The `About this report` sheet lists the report, the source app (title and `app_name`), who
+  generated it, when (Eastern and UTC), the date range, the excluded accounts, the events counted,
+  and the ads_auth version. The All events file covers every stored event, as before; its About
+  sheet and the button's help now say the page's date range does not apply to it.
+- File names keep their pattern with `.xlsx` and date-stamp in Eastern time.
+- Text from accounts and settings is always written as text, never as a spreadsheet formula.
+- New in `usage.reports`: `xlsx_workbook(header, rows, about)`, `XLSX_MIME`, and the row builders
+  `aggregate_rows`, `per_user_rows` and `combined_events_rows`, which the CSV functions now use too.
+  New in `ui.reports`: `report_about(...)`. The CSV functions and `manage.py export-events` are
+  unchanged.
+- New dependency: `openpyxl>=3.1`.
+
 ## v1.4.0 (2026-11-05)
 
 Disclosure: affected. The Usage statistics page now shows managers and administrators who has the

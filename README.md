@@ -29,9 +29,11 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   automatically.
 - **A Usage statistics page.** Managers and administrators can see who has the app open right now,
   how many people were active each day, week and month, and totals for each person, and can
-  download the figures as CSV files. One of those files has the same four columns in every app, so
-  exports from different apps can be combined into one spreadsheet. Who has the app open is read
-  from the server's memory when the page is shown; it is never stored.
+  download the figures as Excel workbooks. Each workbook has the figures on its first sheet and,
+  on a second sheet called About this report, which app it came from, who downloaded it and when,
+  and the date range and excluded accounts that shaped it. One of those files has the same four
+  columns in every app, so exports from different apps can be combined into one spreadsheet. Who
+  has the app open is read from the server's memory when the page is shown; it is never stored.
 - **An About page.** The app points the package at its own data-handling document, and the About
   page shows that document to users exactly as written.
 - **Housekeeping.** Once a day the package makes a backup of the database, keeping the seven most
@@ -55,7 +57,7 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.settings` | `AppSettings`, the object an app fills in to describe itself. The next section explains it. |
 | `ads_auth.db` | Opening the SQLite database and applying schema changes. The changes are numbered and safe to apply more than once. |
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
-| `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the daily, weekly and monthly active-user figures, and the CSV exports. |
+| `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the daily, weekly and monthly active-user figures, and the CSV and Excel exports. |
 | `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
 | `ads_auth.ui.reconnect` | `keep_sessions_on_reconnect()`, which lets a browser tab whose connection dropped rejoin its own session instead of starting an empty one. "Staying signed in" below explains it. |
 | `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
@@ -98,7 +100,7 @@ settings = Settings(data_dir=Path(environ["DATA_DIR"]), auth_mode=auth_mode_from
 The fields mean the following.
 
 - `app_name` is a short, lowercase name for the app. It appears in the `app` column of the usage
-  export and at the start of the CSV file names, so exports from different apps can be told apart.
+  export and at the start of the download file names, so exports from different apps can be told apart.
 - `title` is the heading on the sign-in screen.
 - `data_dir` is the folder that holds the database and the backups. On a hosted server this is the
   persistent disk.
@@ -226,7 +228,7 @@ serving unless the operator insists.
 The package itself records three kinds of event: `login`, `login_failed`, and `logout`. Everything
 else is up to the app, which lists its own event names in the `events` field of its settings. A name
 is a short lowercase word or phrase with underscores, such as `upload` or `run_audit`, and the order
-of the list is the order the Usage statistics page and the CSV exports show the columns. When the
+of the list is the order the Usage statistics page and its exports show the columns. When the
 app calls `log(settings, name, user)`, the package accepts one of its own three names or a name the
 app declared, and rejects anything else. A usage row holds the time, the account name, and the event
 name only. It never holds search terms, file names, or content.
