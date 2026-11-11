@@ -61,3 +61,14 @@ def test_search_signature_changes_only_with_inputs():
     assert a != events.search_signature("refund", "fee", (True, True, False, False), "upload:abc")
     assert a != events.search_signature("refund", "", (False, True, False, False), "upload:abc")
     assert a != events.search_signature("refund", "", (True, True, False, False), "upload:xyz")
+
+
+def test_log_event_writes_one_server_log_line_with_the_account_and_event(conn, caplog):
+    import logging
+    with caplog.at_level(logging.INFO, logger="ads_auth.usage.events"):
+        events.log_event(conn, "login", user=U, now=T0)
+        events.log_event(conn, "login_failed", now=T0)
+    assert [r.getMessage() for r in caplog.records] == [
+        "usage event: login by pat@example.org",
+        "usage event: login_failed by an unknown account",
+    ]

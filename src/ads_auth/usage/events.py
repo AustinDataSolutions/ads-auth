@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import json
+import logging
 import sqlite3
 from collections.abc import Iterable
 from datetime import datetime
@@ -12,6 +13,7 @@ from ads_auth.models import User
 
 # The package owns these three names; every other event name is declared by the app on AppSettings.events.
 CORE_EVENTS = frozenset({"login", "login_failed", "logout"})
+LOGGER = logging.getLogger(__name__)
 CORE_ACTIVITY_EVENTS = frozenset({"login"})
 RETENTION_MONTHS = 13
 
@@ -30,7 +32,8 @@ def log_event(
 
     `event` must be a core name or one of `allowed`, the app's declared names (`ads_auth.ui.gate.log`
     passes `settings.events`). Rows hold timestamp, account, event type, and the optional outcome
-    and job id; never content.
+    and job id; never content. The same account name and event type go to the server log as one
+    INFO line, so an operator reading the log can see who did what; an anonymous row logs no name.
     """
     if event not in CORE_EVENTS and event not in set(allowed):
         raise ValueError(f"Unknown event type: {event!r}")
@@ -46,6 +49,7 @@ def log_event(
                 job_id,
             ),
         )
+    LOGGER.info("usage event: %s by %s", event, user.username if user else "an unknown account")
 
 
 def retention_cutoff(now: datetime, months: int = RETENTION_MONTHS) -> datetime:

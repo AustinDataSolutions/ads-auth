@@ -5,6 +5,22 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.5.1 (2026-11-11)
+
+Disclosure: affected. Every recorded usage event now also goes to the server log as one line
+with the account name and the event type, the same two values the usage events table holds, so an
+operator reading the log can see who signed in, signed out, or did one of the app's recorded
+actions. A failed sign-in for a name that matches no account is logged with no name, as before.
+Nothing new is stored, and the line never holds content. An app that adopts this release should
+add the account name and event type to what it says the server log holds, for example:
+
+> The server log also has one line per recorded action, with your account name and the kind of
+> action, the same as the usage events table.
+
+- `usage.events.log_event` logs `usage event: <event> by <account>` at INFO through the
+  `ads_auth.usage.events` logger after writing the row. Apps that do not want the lines can set
+  that logger's level to WARNING.
+
 ## v1.5.0 (2026-11-06)
 
 Disclosure: affected. The Usage statistics page's downloads are now Excel workbooks whose second

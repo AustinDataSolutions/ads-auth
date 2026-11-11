@@ -231,7 +231,9 @@ is a short lowercase word or phrase with underscores, such as `upload` or `run_a
 of the list is the order the Usage statistics page and its exports show the columns. When the
 app calls `log(settings, name, user)`, the package accepts one of its own three names or a name the
 app declared, and rejects anything else. A usage row holds the time, the account name, and the event
-name only. It never holds search terms, file names, or content.
+name only. It never holds search terms, file names, or content. The same account name and event
+name also go to the server log as one line (`usage event: login by alice`), so an operator reading
+the log can see who did what without opening the database.
 
 A person counts as active in a week or a month if they signed in or did any of the actions the app
 listed. If some recorded actions should not count as activity, the app can list the ones that do in
