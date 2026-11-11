@@ -174,3 +174,18 @@ def test_per_user_rows_feed_csv_and_xlsx_alike():
     rows = [reports.UserRow("=cmd", 1, {"search": 2})]
     assert reports.per_user_rows(rows, ("search",)) == [("=cmd", 1, 2)]
     assert reports.per_user_csv(rows, ("search",)) == "username,logins,search\n=cmd,1,2\n"
+
+
+def test_logins_by_user_by_week_keeps_the_most_recent_weeks_only(conn):
+    u = User(1, "ana", None, "user", True, False, None, 1, "2026-01-01T00:00:00+00:00", None)
+    for month in (1, 6, 12):
+        events.log_event(conn, "login", user=u, now=datetime(2025, month, 3, 15, tzinfo=timezone.utc))
+    events.log_event(conn, "search", user=u, now=datetime(2025, 12, 3, 16, tzinfo=timezone.utc), allowed=("search",))
+    weeks, series = reports.logins_by_user_by_week(conn, date(2025, 1, 1), date(2025, 12, 31), weeks=52)
+    assert len(weeks) == 52 and weeks[0] == date(2025, 1, 6) and weeks[-1] == date(2025, 12, 29)
+    assert sum(series["ana"]) == 2                     # June and December; January fell off the front
+    assert series["ana"][weeks.index(date(2025, 12, 1))] == 1
+    weeks, series = reports.logins_by_user_by_week(conn, date(2025, 1, 1), date(2025, 12, 31), weeks=5)
+    assert weeks[0] == date(2025, 12, 1) and series == {"ana": [1, 0, 0, 0, 0]}   # Dec 3 is in the week of Dec 1
+    weeks, series = reports.logins_by_user_by_week(conn, date(2025, 1, 1), date(2025, 12, 31), weeks=4)
+    assert len(weeks) == 4 and series == {}                                        # no sign-in in the last four weeks

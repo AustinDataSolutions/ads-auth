@@ -135,6 +135,26 @@ def active_users_by_period(
     return out
 
 
+def logins_by_user_by_week(
+    conn: sqlite3.Connection, start: date, end: date, exclude=None, *, weeks: int = 52,
+) -> tuple[list[date], dict[str, list[int]]]:
+    """Sign-ins per account for each week in [start, end], the most recent `weeks` weeks at most.
+
+    Returns the week starts (Mondays, oldest first) and, for every account with a sign-in in those
+    weeks, its count per week in the same order, by username.
+    """
+    periods = list(_periods(start, end, "week"))[-weeks:]
+    index = {p_start: i for i, (p_start, _) in enumerate(periods)}
+    series: dict[str, list[int]] = {}
+    for r in _fetch(conn, start, end, exclude):
+        if r["event"] != "login" or r["username"] is None:
+            continue
+        week = week_start(local_date(r["ts_utc"]))
+        if week in index:
+            series.setdefault(r["username"], [0] * len(periods))[index[week]] += 1
+    return [p_start for p_start, _ in periods], dict(sorted(series.items()))
+
+
 def per_user_totals(conn: sqlite3.Connection, start: date, end: date, exclude=None, *, events: Sequence[str] = ()) -> list[UserRow]:
     """Logins and one count per declared event for every named account with events in [start, end], sorted by username."""
     by_user: dict[str, list] = {}

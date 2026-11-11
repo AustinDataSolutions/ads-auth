@@ -92,9 +92,12 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
     captions = [c[1][0] for c in st.of("caption")]
     assert reports.DEFINITIONS in captions                               # no app-specific wording declared
     assert len(st.of("dataframe")) == 4                                  # monthly, weekly, daily, per user
-    assert [call[1][0] for call in st.of("subheader")][:3] == [
-        "Monthly active users", "Weekly active users", "Daily active users"]
-    daily_frame = st.of("dataframe")[2][1][0]
+    assert [call[1][0] for call in st.of("subheader")] == [
+        "Per user", "Daily active users", "Weekly active users", "Weekly sign-ins by user",
+        "Monthly active users", "Downloads"]
+    (chart,) = st.of("line_chart")
+    assert list(chart[1][0].columns) == ["m"] and chart[1][0]["m"].sum() == 1 and chart[2]["color"] == ["#2a78d6"]
+    daily_frame = st.of("dataframe")[1][1][0]
     assert len(daily_frame) == 61 and list(daily_frame["Period start"])[-1] == date(2026, 9, 1)
     assert daily_frame.loc[daily_frame["Period start"] == date(2026, 10, 1), "Active users"].tolist() == [1]
     # Outside a running server no one else has the app open; a manager gets a caption, nothing loud
@@ -114,11 +117,11 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
     assert all(list(book) == ["Data", "About this report"] for book in workbooks)
     all_events = workbooks[2]["Data"]
     assert all_events[:2] == [("ts_utc", "app", "username", "event"), ("2026-10-01T15:00:00+00:00", "demo-app", "m", "login")]
-    monthly_frame = st.of("dataframe")[0][1][0]
+    monthly_frame = st.of("dataframe")[3][1][0]
     assert list(monthly_frame["Active users"]) == [1, 0]       # newest first: October one, September zero
     assert list(monthly_frame.columns) == ["Period start", "Period end", "Active users", "Logins", "Searches", "Complete"]
     assert list(monthly_frame["Searches"]) == [1, 0]
-    assert list(st.of("dataframe")[3][1][0].columns) == ["User", "Logins", "Searches"]
+    assert list(st.of("dataframe")[0][1][0].columns) == ["User", "Logins", "Searches"]
     aggregates = workbooks[0]["Data"]
     assert aggregates[0] == ("period_type", "period_start", "period_end", "active_users", "logins", "search", "complete")
     assert ("day", datetime(2026, 10, 1), datetime(2026, 10, 1), 1, 1, 1, "yes") in aggregates   # real dates in Excel
@@ -148,13 +151,13 @@ def test_reports_exclude_box_removes_an_account_everywhere(settings):
         events.log_event(conn, "login", user=dev, now=datetime(2026, 10, 1, 15, tzinfo=timezone.utc))
     st = FakeSt(dates={"reports_from": date(2026, 10, 1), "reports_to": date(2026, 10, 31)})
     reports.render(st, settings, _user("manager"))
-    monthly_frame = st.of("dataframe")[0][1][0]
+    monthly_frame = st.of("dataframe")[3][1][0]
     assert list(monthly_frame["Active users"]) == [1]                     # ops-test excluded by default
     assert all(row[2] != "ops-test" for row in _sheets(st.of("download_button")[2][1][1])["Data"])
     st = FakeSt(dates={"reports_from": date(2026, 10, 1), "reports_to": date(2026, 10, 31)})
     st.session_state["reports_exclude"] = []                              # manager clears the box
     reports.render(st, settings, _user("manager"))
-    assert list(st.of("dataframe")[0][1][0]["Active users"]) == [2]
+    assert list(st.of("dataframe")[3][1][0]["Active users"]) == [2]
     assert _about(st.of("download_button")[0][1][1])["Excluded accounts"] == "None"
 
 
@@ -170,11 +173,11 @@ def test_reports_columns_follow_the_declared_vocabulary(tmp_path):
     st = FakeSt(dates={"reports_from": date(2026, 10, 1), "reports_to": date(2026, 10, 31)})
     reports.render(st, s, _user("manager"))
     assert "**Process**: one per run, including reruns." in [c[1][0] for c in st.of("caption")]
-    monthly = st.of("dataframe")[0][1][0]
+    monthly = st.of("dataframe")[3][1][0]
     assert list(monthly.columns) == ["Period start", "Period end", "Active users", "Logins", "Uploads", "Processes", "Library refreshes", "Complete"]
     assert list(monthly["Processes"]) == [1] and list(monthly["Library refreshes"]) == [1]
     assert list(monthly["Active users"]) == [1]
-    assert list(st.of("dataframe")[3][1][0].columns) == ["User", "Logins", "Uploads", "Processes", "Library refreshes"]
+    assert list(st.of("dataframe")[0][1][0].columns) == ["User", "Logins", "Uploads", "Processes", "Library refreshes"]
     assert _sheets(st.of("download_button")[1][1][1])["Data"] == [
         ("username", "logins", "upload", "process", "library_refresh"), ("m", 0, 0, 1, 1)]
 
@@ -209,7 +212,7 @@ def test_reports_start_the_default_range_on_usage_since(tmp_path):
     reports.render(st, s, _user("manager"))
     starts = [call for call in st.of("date_input")]
     assert starts and st.of("dataframe")
-    assert st.of("dataframe")[0][1][0]["Period start"].min() >= date(2026, 10, 1)
+    assert st.of("dataframe")[3][1][0]["Period start"].min() >= date(2026, 10, 1)
 
 
 def test_open_sessions_are_loud_and_name_each_person():
@@ -299,3 +302,25 @@ def test_report_about_names_the_person_and_the_filters(settings):
     assert about["Generated at (UTC)"] == "2026-11-06T19:05:09Z"
     assert about["Excluded accounts"] == "ops-test, zed"
     assert "Periods" not in about
+
+
+def test_weekly_sign_ins_chart_has_one_line_per_account_in_the_range(settings):
+    def user(n, name):
+        return User(n, name, None, "user", True, False, None, 1, "2026-01-01T00:00:00+00:00", None)
+    with db.connection(settings.db_path) as conn:
+        for day in (1, 2, 9):                                                   # weeks of Aug 31 and Sep 7; Sep 14 is a Monday
+            events.log_event(conn, "login", user=user(2, "bo"), now=datetime(2026, 9, day, 15, tzinfo=timezone.utc))
+        events.log_event(conn, "login", user=user(1, "ana"), now=datetime(2026, 9, 9, 15, tzinfo=timezone.utc))
+        events.log_event(conn, "login", user=user(3, "ops-test"), now=datetime(2026, 9, 9, 15, tzinfo=timezone.utc))
+        events.log_event(conn, "login", user=user(1, "ana"), now=datetime(2026, 8, 20, 15, tzinfo=timezone.utc))  # before the range
+    st = FakeSt(dates={"reports_from": date(2026, 9, 1), "reports_to": date(2026, 9, 14)})
+    reports.render(st, settings, _user("manager"))
+    (chart,) = st.of("line_chart")
+    frame = chart[1][0]
+    assert list(frame.columns) == ["ana", "bo"]                                 # by username; ops-test excluded
+    assert list(frame.index) == [date(2026, 8, 31), date(2026, 9, 7), date(2026, 9, 14)] and frame.index.name == "Week of"
+    assert frame["ana"].tolist() == [0, 1, 0] and frame["bo"].tolist() == [2, 1, 0]
+    assert chart[2]["color"] == ["#2a78d6", "#eb6834"] and chart[2]["x_label"] == "Week of"
+    st = FakeSt(dates={"reports_from": date(2027, 1, 1), "reports_to": date(2027, 1, 14)})
+    reports.render(st, settings, _user("manager"))
+    assert not st.of("line_chart") and "No sign-ins in this range." in [c[1][0] for c in st.of("caption")]

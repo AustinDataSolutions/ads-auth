@@ -5,6 +5,18 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.6.0 (2026-11-11)
+
+Disclosure: unaffected. The chart shows sign-in counts the page's tables already show; nothing new
+is stored, logged, or sent.
+
+- The Usage statistics page has a line chart of weekly sign-ins per account, one line per account,
+  for the weeks in the selected date range (the most recent 52 at most), with the excluded accounts
+  left out. `usage.reports.logins_by_user_by_week(conn, start, end, exclude, weeks=52)` returns the
+  week starts and the per-account counts; `ui.reports.render_logins_chart` draws it.
+- The page's order is now: who has the app open, Per user, Daily active users, Weekly active users,
+  the weekly sign-ins chart, Monthly active users, Downloads. The downloads are unchanged.
+
 ## v1.5.2 (2026-11-11)
 
 Disclosure: affected, narrower. Managers no longer see who has the app open: the Usage statistics
