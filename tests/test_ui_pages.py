@@ -89,15 +89,16 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
         events.log_event(conn, "search", user=_user("manager"), now=datetime(2026, 10, 1, 15, 1, tzinfo=timezone.utc), allowed=settings.events)
     st = FakeSt(dates={"reports_from": date(2026, 9, 1), "reports_to": date(2026, 10, 31)})
     reports.render(st, settings, _user("manager"))
-    assert st.of("caption")[0][1][0] == reports.DEFINITIONS            # no app-specific wording declared
+    captions = [c[1][0] for c in st.of("caption")]
+    assert reports.DEFINITIONS in captions                               # no app-specific wording declared
     assert len(st.of("dataframe")) == 4                                  # monthly, weekly, daily, per user
     assert [call[1][0] for call in st.of("subheader")][:3] == [
         "Monthly active users", "Weekly active users", "Daily active users"]
     daily_frame = st.of("dataframe")[2][1][0]
     assert len(daily_frame) == 61 and list(daily_frame["Period start"])[-1] == date(2026, 9, 1)
     assert daily_frame.loc[daily_frame["Period start"] == date(2026, 10, 1), "Active users"].tolist() == [1]
-    # Outside a running server no one else has the app open, and the page says so quietly
-    assert st.of("success") and not st.of("warning")
+    # Outside a running server no one else has the app open; a manager gets a caption, nothing loud
+    assert "No one else has the app open right now." in captions and not st.of("warning") and not st.of("success")
     # Streamlit drops use_container_width after 2025-12-31; the tables fill the page with width="stretch"
     assert all(call[2].get("width") == "stretch" and "use_container_width" not in call[2] for call in st.of("dataframe"))
     downloads = st.of("download_button")
@@ -168,7 +169,7 @@ def test_reports_columns_follow_the_declared_vocabulary(tmp_path):
         events.log_event(conn, "library_refresh", user=_user("manager"), now=datetime(2026, 10, 1, 16, tzinfo=timezone.utc), allowed=s.events)
     st = FakeSt(dates={"reports_from": date(2026, 10, 1), "reports_to": date(2026, 10, 31)})
     reports.render(st, s, _user("manager"))
-    assert st.of("caption")[0][1][0] == "**Process**: one per run, including reruns."
+    assert "**Process**: one per run, including reruns." in [c[1][0] for c in st.of("caption")]
     monthly = st.of("dataframe")[0][1][0]
     assert list(monthly.columns) == ["Period start", "Period end", "Active users", "Logins", "Uploads", "Processes", "Library refreshes", "Complete"]
     assert list(monthly["Processes"]) == [1] and list(monthly["Library refreshes"]) == [1]
@@ -220,7 +221,7 @@ def test_open_sessions_are_loud_and_name_each_person():
         OpenSession("Mo", "mo", connected=True, running=False, current=True),
     ]
     st = FakeSt()
-    reports.render_open_sessions(st, sessions, hold_minutes=60)
+    reports.render_open_sessions(st, sessions, hold_minutes=60, detailed=True)
     (call,) = st.of("warning")
     text = call[1][0]
     assert text.startswith("**3 pages are open on this server right now, by 1 person.**")
@@ -229,8 +230,37 @@ def test_open_sessions_are_loud_and_name_each_person():
     assert "- Someone on the sign-in screen: page open" in text
     assert "Mo" not in text                                              # the viewer's own page
     st = FakeSt()
-    reports.render_open_sessions(st, sessions[3:])
+    reports.render_open_sessions(st, sessions[3:], detailed=True)
     assert st.of("success") and not st.of("warning")
+
+
+def test_open_sessions_give_managers_a_count_and_no_names():
+    from ads_auth.ui.live_sessions import OpenSession
+    sessions = [
+        OpenSession("Ana Diaz", "ana", connected=True, running=True, current=False),
+        OpenSession("Ana Diaz", "ana", connected=False, running=False, current=False),
+        OpenSession("Bo", "bo", connected=True, running=False, current=False),
+        OpenSession(None, None, connected=True, running=False, current=False),
+        OpenSession("Mo", "mo", connected=True, running=False, current=True),
+    ]
+    st = FakeSt()
+    reports.render_open_sessions(st, sessions, hold_minutes=60)
+    (call,) = st.of("info")
+    assert call[1][0] == "2 other people have the app open right now; 1 page is on the sign-in screen."
+    assert not st.of("warning")
+    st = FakeSt()
+    reports.render_open_sessions(st, sessions[:1], hold_minutes=60)
+    assert st.of("info")[0][1][0] == "1 other person has the app open right now."
+    st = FakeSt()
+    reports.render_open_sessions(st, sessions[4:])
+    assert st.of("caption")[0][1][0] == "No one else has the app open right now." and not st.of("info")
+
+
+def test_reports_show_the_detailed_notice_to_admins_only(settings):
+    for role, loud in (("manager", False), ("admin", True)):
+        st = FakeSt(dates={"reports_from": date(2026, 9, 1), "reports_to": date(2026, 10, 31)})
+        reports.render(st, settings, _user(role))
+        assert bool(st.of("success")) is loud   # no one else is on outside a server: green banner for admins only
 
 
 def test_open_sessions_read_each_sessions_signed_in_account(settings):

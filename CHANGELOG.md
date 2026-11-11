@@ -5,6 +5,21 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.5.2 (2026-11-11)
+
+Disclosure: affected, narrower. Managers no longer see who has the app open: the Usage statistics
+page shows them only how many other people have it open (and how many pages are on the sign-in
+screen), with no names, no page states, no hold window, and no deploy warning. Administrators keep
+the detailed notice. An app that adopts this release should say that managers see a count and the
+administrator sees who, for example:
+
+> Managers see how many other people have the app open at the moment; the administrator also
+> sees who, so a restart doesn't catch anyone by surprise.
+
+- `ui.reports.render_open_sessions(..., detailed=False)`: the quiet count. `render` passes
+  `detailed=user.has_role("admin")`. With no one else on, managers get a caption instead of the
+  green banner.
+
 ## v1.5.1 (2026-11-11)
 
 Disclosure: affected. Every recorded usage event now also goes to the server log as one line

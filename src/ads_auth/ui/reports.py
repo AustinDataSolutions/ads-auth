@@ -108,10 +108,30 @@ def _session_line(session, hold_minutes) -> str:
     return f"- {who}: {state}"
 
 
-def render_open_sessions(st_module, sessions, hold_minutes=None) -> None:
-    """Who else has the app open on this server, loudly, so a restart (a deploy, for example) isn't
-    a surprise to them. The viewer's own page is left out."""
+def _count_line(others) -> str:
+    people = {session.username for session in others if session.username}
+    unnamed = sum(1 for session in others if not session.username)
+    parts = []
+    if people:
+        parts.append(f"{len(people)} other {'person has' if len(people) == 1 else 'people have'} the app open right now")
+    if unnamed:
+        parts.append(f"{unnamed} {'page is' if unnamed == 1 else 'pages are'} on the sign-in screen")
+    return "; ".join(parts) + "."
+
+
+def render_open_sessions(st_module, sessions, hold_minutes=None, detailed=False) -> None:
+    """Who else has the app open on this server. The viewer's own page is left out.
+
+    `detailed` is for the people who restart the server: each page by name and state, the hold
+    window, and the deploy warning, loudly. Otherwise (managers, who in some apps are most of the
+    users) a quiet count with no names; the per-user table below says who did what."""
     others = [session for session in sessions if not session.current]
+    if not detailed:
+        if others:
+            st_module.info(_count_line(others), icon=":material/group:")
+        else:
+            st_module.caption("No one else has the app open right now.")
+        return
     if not others:
         st_module.success("No one else has the app open on this server right now.", icon=":material/check_circle:")
         return
@@ -133,7 +153,8 @@ def render(st_module, settings, user: User) -> None:
         st_module.error("This page is available to managers and administrators.")
         st_module.stop()
         return
-    render_open_sessions(st_module, live_sessions.open_sessions(settings), _hold_minutes())
+    render_open_sessions(st_module, live_sessions.open_sessions(settings), _hold_minutes(),
+                         detailed=user.has_role("admin"))
     st_module.caption(settings.definitions or DEFINITIONS)
 
     d_start, d_end = _default_range(settings.usage_since)

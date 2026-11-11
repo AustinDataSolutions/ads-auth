@@ -27,8 +27,8 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   an upload. A row holds only the time, the account name, and the kind of event. It never holds
   what the person typed, uploaded, or searched for. Rows older than thirteen months are deleted
   automatically.
-- **A Usage statistics page.** Managers and administrators can see who has the app open right now,
-  how many people were active each day, week and month, and totals for each person, and can
+- **A Usage statistics page.** Managers and administrators can see how many other people have the
+  app open right now (administrators also see who), how many people were active each day, week and month, and totals for each person, and can
   download the figures as Excel workbooks. Each workbook has the figures on its first sheet and,
   on a second sheet called About this report, which app it came from, who downloaded it and when,
   and the date range and excluded accounts that shaped it. One of those files has the same four
