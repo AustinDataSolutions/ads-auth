@@ -5,6 +5,49 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.6.1 (2026-11-12)
+
+Disclosure: unaffected. Nothing new is stored, logged, or sent. While a sign-out is in progress the
+page's session holds one more flag, which is removed when the sign-out is done.
+
+Signing out, and the two other places that empty a session (a session found expired or revoked, and
+a successful sign-in), now hold up when a second run of the page overlaps them. Streamlit starts
+the next run the moment the browser asks for one and stops the run in progress at its next
+`st.session_state` access, inside a widget callback too; until then both runs work on the same
+session.
+
+- A sign-out that is cut off partway is finished by the next run. Before, a request arriving while
+  the Log out callback ran stopped it wherever it was: before anything was removed (the account
+  stayed signed in, with a `logout` event recorded), partway (the page then ran on half a session
+  and could fail with a missing key), or after the session was empty but before the cookie was
+  refused (the next run signed the account back in from the connection's cookie). `logout` now
+  writes `auth_sign_out_pending` first, and `current_user` (so `require_login` too) finishes a
+  pending sign-out before anything else. A request that overtakes the click before that flag is
+  written leaves the account signed in and records no event.
+- The cookie the connection arrived with is refused before the session is emptied, not after, so a
+  run that reaches the gate in between is not restored from it.
+- `clear_protected_state` no longer calls `st.session_state.clear()`, which stops silently at the
+  first entry that another run removed first and fails outright when another run adds one while the
+  entries are being listed. It now tolerates both, lists the session again until nothing is left,
+  gives up after ten rounds on a run that keeps writing entries back, and drops the keys that make
+  a session signed in last and regardless. It keeps `auth_cookie_blocked`.
+- Fixed: after one account signed out and another signed in on the same page without a reload, the
+  sign-in removed the block on the connection's cookie, which still named the first account and was
+  still valid. If the second account's session was then revoked (a password reset, a deactivation),
+  the page signed the first account back in. The block now lasts for the life of the session. One
+  visible difference: when a session on such a connection ends, the browser's own cookie is cleared
+  on the next reload, not at once.
+- The instruction that tells the browser to set or drop the cookie is drawn before it is taken off
+  the session, not after. Drawing is a point where a superseded run stops, and the instruction was
+  then lost: after a sign-out the browser kept the cookie, and a reload signed the account back in.
+- The package now owns a third session key, `auth_sign_out_pending` (`gate.SIGN_OUT_PENDING`),
+  with `auth_cookie_action` and `auth_cookie_blocked`. Apps leave it alone.
+- Not changed, because the package cannot: a run of the app's own that is still working when the
+  session is emptied can find an entry gone, and can write into the signed-out session afterwards.
+  What it writes is dropped at the next sign-in or when the session ends. A page that does not call
+  the gate (the About page) does not finish a sign-out that was cut short; the next page that calls
+  it does.
+
 ## v1.6.0 (2026-11-11)
 
 Disclosure: unaffected. The chart shows sign-in counts the page's tables already show; nothing new

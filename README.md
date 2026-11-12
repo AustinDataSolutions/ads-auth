@@ -176,6 +176,23 @@ the real sign-in. A password reset, a password change, or a deactivation ends th
 just as it ends the session. Signing out clears the cookie. An invalid, expired, or revoked cookie is
 cleared and the sign-in screen shows.
 
+Signing out empties the page's session, and it has to cope with a second run of the page going at
+the same moment. Streamlit starts the next run as soon as the browser asks for one (a second click,
+a page that reconnects) and stops the run in progress at its next `st.session_state` access, even
+inside the Log out button's callback. So the sign-out first writes one flag,
+`auth_sign_out_pending`, and whichever run calls `require_login` or `current_user` next finishes
+the job before it looks at anything else: the session is emptied, the connection's cookie is
+refused, and the browser is told to drop it. A request that overtakes the click before that flag is
+written loses the click, as it would any click, and the account simply stays signed in. The package
+owns that key, with `auth_cookie_action` and `auth_cookie_blocked`; an app leaves all three alone.
+Two limits follow from how Streamlit works. A page that does not call the gate, such as the About
+page, does not finish a sign-out that was cut short; the next page that does call it will. And a
+run of the app's own that is still working when the session is emptied (one that switched
+Streamlit's stop check off for a long computation, say) can find an entry gone between two looks
+at it, and can write results into the signed-out session afterwards. Those results are dropped at
+the next sign-in or when the session ends, and no one sees them, but an app that runs such stages
+should expect both.
+
 Because the person is signed back in without noticing, they may not realise the new session is
 empty. That happens after a reload, and also when the server restarted or dropped the connection
 while the page stayed open. In that case the page can still show an uploaded file's name, but the
