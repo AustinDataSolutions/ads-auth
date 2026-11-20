@@ -5,11 +5,12 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from ads_auth import __version__, db
+from ads_auth import __version__, admin, db
 from ads_auth.models import User
 from ads_auth.store import UserStore
 from ads_auth.ui import link, live_sessions
 from ads_auth.usage import reports
+from ads_auth.usage.events import RETENTION_MONTHS
 
 # Generic caption. An app with more to say (what one of its events means, how repeats are counted)
 # sets `AppSettings.definitions`, which replaces this text.
@@ -242,3 +243,26 @@ def render(st_module, settings, user: User) -> None:
                        f"{prefix}usage-events-{stamp}.xlsx", reports.XLSX_MIME,
                        help="Same columns as the other ADS apps' exports, so the files can be combined. "
                             "Covers every stored event, not just the date range above. Excluded accounts are left out.")
+
+    if user.has_role("admin"):
+        render_admin_log(st_module, settings)
+
+
+def render_admin_log(st_module, settings) -> None:
+    """Administrators only: account changes made from the sidebar's Manage users section."""
+    st_module.subheader("Admin actions")
+    with db.connection(settings.db_path) as conn:
+        rows = admin.recent(conn)
+    st_module.caption("Account changes made from Manage users, newest first. Only administrators see this table, "
+                      "and it is not in the downloads. The date range and excluded accounts above don't apply. "
+                      f"Rows are deleted after {RETENTION_MONTHS} months.")
+    if not rows:
+        st_module.caption("No admin actions yet.")
+        return
+    st_module.dataframe(pd.DataFrame([{
+        "When (Eastern)": db.from_iso(r.ts_utc).astimezone(reports.DISPLAY_TZ).strftime("%Y-%m-%d %H:%M"),
+        "Admin": r.admin,
+        "Action": admin.ACTION_LABELS.get(r.action, r.action),
+        "Account": r.account,
+        "Detail": r.detail or "",
+    } for r in rows]), hide_index=True, width="stretch")

@@ -5,6 +5,54 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.7.0 (2026-11-20)
+
+Disclosure: affected. The database has a new table, the admin log, with one row for each account
+change an administrator makes from the sidebar: when, which administrator, what was done (account
+created, password reset, role changed, deactivated, reactivated, deleted), to which account, and
+for a role change the old and new role. It never holds a password. Rows are deleted after 13
+months, like usage events, and are in the daily backups. Only administrators see it, on the Usage
+statistics page; managers do not, and it is not in the downloads. The server log gets one line per
+change with the administrator's account name and the action, not the account acted on, at INFO
+through the `ads_auth.admin` logger. Like v1.5.1's usage-event lines, it reaches the server log only
+if the app configures a logging handler at INFO; check before saying so in the disclosure. An app
+that adopts this release should add a row for the admin log, for example:
+
+> **Account changes by the administrator.** When the administrator adds, resets, changes the role
+> of, deactivates, reactivates or deletes an account in the app, the app records the time, the
+> administrator, what was done, and to which account (for a role change, the old and new role).
+> Passwords are never recorded. Kept 13 months, then deleted automatically. Only the administrator
+> sees it.
+
+- **Manage users** in the sidebar, for administrators only, collapsed until opened, below Change
+  password. Four tasks: Reset password, Add user (name, username, role), Change role, Delete user.
+  Each picks the account from a list that shows its role, last sign-in, and whether it is locked
+  out, deactivated, or waiting on a temporary password. The administrator's own account is not
+  listed.
+  - A reset, a new account, and a reactivation each give a random temporary password, shown once in
+    the sidebar with a copy button until Done is clicked, and changed by the person at their next
+    sign-in (the existing 90-day temporary-password rule). A reset also signs the account out
+    everywhere and clears a lockout.
+  - Delete opens a dialog. **Delete permanently** stays disabled until the username is typed;
+    **Deactivate instead** turns the account off and can be undone.
+  - A deactivated account is marked "(deactivated)" in the list; choosing it shows **Reactivate**,
+    which turns it back on with a new temporary password so its old one stays dead.
+- **Admin actions** table at the end of the Usage statistics page, for administrators only.
+- New `ads_auth.admin`: `create_account`, `reset_password`, `change_role`, `deactivate`,
+  `reactivate`, `delete_account` (each takes the acting administrator and refuses their own
+  account, non-administrators, and the local-development user), `record`, `recent`, `prune`. New
+  `ads_auth.ui.admin.render_manage_users`, called by `render_sidebar`; apps need no change.
+  `UserStore.is_locked(username)`.
+- Schema version 2 adds `admin_actions(ts_utc, admin, action, account, detail)`. Migrations run at
+  startup as before. `maintenance.run_once` prunes it and reports `admin_pruned`.
+- The sidebar's and sign-in screen's About link now reads **About this app** (it no longer fits the
+  sidebar). Apps that give their About `st.Page` the long title should shorten it to match.
+- The package owns the session keys starting `auth_admin_`; apps leave them alone. The temporary
+  password waiting for Done is held in the session's memory only, and is dropped with the rest of
+  the session at sign-out.
+- Not changed: operator commands on the command line (`set-password`, `set-role`, `delete-user`, and so
+  on) do not write to the admin log.
+
 ## v1.6.1 (2026-11-12)
 
 Disclosure: unaffected. Nothing new is stored, logged, or sent. While a sign-out is in progress the

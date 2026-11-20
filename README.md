@@ -22,6 +22,17 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   `user`, `manager`, or `admin`. An administrator can give someone a temporary password, which must
   be changed at first sign-in. Accounts can be imported from another app's database, whether
   that app uses this package or keeps its accounts in a Flask-style `user` table.
+- **Managing users from the sidebar.** Administrators get a Manage users section in the sidebar,
+  collapsed until they open it. It resets a password, adds an account (name, username, role),
+  changes a role, and deletes an account. Deleting asks for the username to be typed and offers
+  "Deactivate instead"; a deactivated account shows a Reactivate button. Passwords are never typed
+  there: a reset, a new account and a reactivation each get a random temporary password, shown
+  once, which the person must change at their next sign-in. An administrator's own account is not
+  listed, so their own password is changed with the Change password form. Every change is written
+  to an admin log (when, which administrator, what, which account, and the old and new role for a
+  role change; never a password), kept thirteen months and shown only to administrators on the
+  Usage statistics page. The server log gets one line per change with the administrator and the
+  action, not the account.
 - **Usage records.** The app writes one row each time something worth counting happens: a sign-in,
   a failed sign-in, a sign-out, and whichever of its own actions the app chooses to record, such as
   an upload. A row holds only the time, the account name, and the kind of event. It never holds
@@ -38,7 +49,7 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
 - **An About page.** The app points the package at its own data-handling document, and the About
   page shows that document to users exactly as written.
 - **Housekeeping.** Once a day the package makes a backup of the database, keeping the seven most
-  recent copies, and removes usage rows that have passed the retention period. An app can add one
+  recent copies, and removes usage rows and admin-log rows that have passed the retention period. An app can add one
   housekeeping task of its own to the same daily pass.
 - **Startup checks.** Before the app begins serving, the package confirms that its settings are
   valid, that sign-in has not been switched off on a hosted server, that the data folder can be
@@ -59,7 +70,8 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.db` | Opening the SQLite database and applying schema changes. The changes are numbered and safe to apply more than once. |
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
 | `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the daily, weekly and monthly active-user figures, and the CSV and Excel exports. |
-| `ads_auth.ui.gate`, `ui.account` | The sign-in screen, the sidebar with the sign-out button, and the change-password forms. |
+| `ads_auth.admin` | The account changes an administrator makes from the app (create, reset password, change role, deactivate, reactivate, delete) and the admin log that records them. |
+| `ads_auth.ui.gate`, `ui.account`, `ui.admin` | The sign-in screen, the sidebar with the sign-out button, the change-password forms, and the Manage users section. |
 | `ads_auth.ui.reconnect` | `keep_sessions_on_reconnect()`, which lets a browser tab whose connection dropped rejoin its own session instead of starting an empty one. "Staying signed in" below explains it. |
 | `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
 | `ads_auth.ui.reports`, `ui.about`, `ui.live_sessions` | The Usage statistics page (with who has the app open now) and the About page. |
@@ -149,7 +161,7 @@ def main_page():
 def run():
     db.migrate(settings.db_path)
     settings.pages["app"] = st.Page(main_page, title=settings.title, url_path="app", default=True)
-    settings.pages["about"] = st.Page(lambda: about.render(st, settings), title="About this app and data handling", url_path="about")
+    settings.pages["about"] = st.Page(lambda: about.render(st, settings), title="About this app", url_path="about")
     settings.pages["reports"] = st.Page(reports_page, title="Usage statistics", url_path="reports")
     st.navigation(list(settings.pages.values()), position="hidden").run()
 ```
@@ -185,6 +197,7 @@ the job before it looks at anything else: the session is emptied, the connection
 refused, and the browser is told to drop it. A request that overtakes the click before that flag is
 written loses the click, as it would any click, and the account simply stays signed in. The package
 owns that key, with `auth_cookie_action` and `auth_cookie_blocked`; an app leaves all three alone.
+(It also owns the Manage users section's keys, which all start with `auth_admin_`.)
 Two limits follow from how Streamlit works. A page that does not call the gate, such as the About
 page, does not finish a sign-out that was cut short; the next page that does call it will. And a
 run of the app's own that is still working when the session is emptied (one that switched

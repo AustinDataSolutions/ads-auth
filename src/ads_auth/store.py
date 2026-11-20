@@ -160,6 +160,11 @@ class UserStore:
             policy.clear_failures(conn, user.username)
         return temp_password
 
+    def is_locked(self, username: str, now: datetime | None = None) -> bool:
+        """True while the account is locked out by failed sign-ins."""
+        with connection(self.db_path) as conn:
+            return policy.is_locked(conn, username, now)
+
     def unlock(self, username: str) -> User:
         """Clear lockout state for an account without changing anything else."""
         user = self._require(username)

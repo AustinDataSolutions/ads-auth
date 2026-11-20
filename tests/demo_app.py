@@ -50,7 +50,7 @@ def run():
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     db.migrate(settings.db_path)
     settings.pages["app"] = st.Page(main_page, title="Demo App", url_path="app", default=True)
-    settings.pages["about"] = st.Page(about_page, title="About this app and data handling", url_path="about")
+    settings.pages["about"] = st.Page(about_page, title="About this app", url_path="about")
     settings.pages["reports"] = st.Page(reports_page, title="Usage statistics", url_path="reports")
     st.navigation(list(settings.pages.values()), position="hidden").run()
 

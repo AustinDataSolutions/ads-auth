@@ -276,7 +276,7 @@ def require_login(st_module, settings) -> User:
         username = st_module.text_input("Username", key="login_username", autocomplete="username")
         password = st_module.text_input("Password", type="password", key="login_password", autocomplete="current-password")
         submitted = st_module.form_submit_button("Sign in")
-    link(st_module, settings, "about", "About this app and data handling", "ℹ️")
+    link(st_module, settings, "about", "About this app", "ℹ️")
     if submitted:
         found, outcome = store.verify_login(username, password)
         if outcome is LoginOutcome.SUCCESS:
@@ -312,13 +312,15 @@ def render_sidebar(st_module, settings, user: User, show_reports: bool, confirm_
         with st_module.expander("Change password"):
             from ads_auth.ui.account import render_change_form
             render_change_form(st_module, settings, user)
+        from ads_auth.ui.admin import render_manage_users
+        render_manage_users(st_module, settings, user)    # administrators only; collapsed
         if user.id != 0:
             # on_click runs before the next script run, so that run starts signed out
             # and draws the login screen directly without a mid-run rerun.
             st_module.button("Log out", key="logout_button", on_click=logout, args=(st_module, settings))
         if show_reports:
             _page_link(st_module, settings, "reports", "Usage statistics", "📊", guard)
-        _page_link(st_module, settings, "about", "About this app and data handling", "ℹ️", guard)
+        _page_link(st_module, settings, "about", "About this app", "ℹ️", guard)
 
 
 def _page_link(st_module, settings, name: str, label: str, icon: str, guard: bool) -> None:

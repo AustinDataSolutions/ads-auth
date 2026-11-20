@@ -167,7 +167,7 @@ def _sidebar_nav(at):
 def test_links_navigate_at_once_while_there_is_nothing_to_lose(env):
     UserStore(env).create_user("pat", password=PW, role="manager")
     at = _login(_app(), "pat", PW)
-    assert _sidebar_nav(at) == (["Usage statistics", "About this app and data handling"], [])
+    assert _sidebar_nav(at) == (["Usage statistics", "About this app"], [])
     assert PENDING_PAGE not in at.session_state
     assert not [b for b in at.button if b.key in ("auth_leave_back", "auth_leave_proceed")]
 
@@ -179,7 +179,7 @@ def test_a_typed_search_turns_the_links_into_a_confirmation(env):
     assert not at.exception, at.exception
     assert _sidebar_nav(at) == ([], ["auth_nav_reports", "auth_nav_about"])
     assert [b.label for b in at.sidebar.button if b.key.startswith("auth_nav_")] == \
-        ["Usage statistics", "About this app and data handling"]
+        ["Usage statistics", "About this app"]
 
     # Clicking a link now asks instead of leaving.
     at.button(key="auth_nav_about").click().run()

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -47,6 +47,19 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS ix_usage_events_ts   ON usage_events(ts_utc);
     CREATE INDEX IF NOT EXISTS ix_usage_events_user ON usage_events(user_id, ts_utc);
+    """,
+    # Account changes made from the sidebar's Manage users section: who did what to which account.
+    # Kept apart from usage_events so it never reaches managers, the downloads, or activity counts.
+    2: """
+    CREATE TABLE IF NOT EXISTS admin_actions (
+      id       INTEGER PRIMARY KEY,
+      ts_utc   TEXT NOT NULL,
+      admin    TEXT NOT NULL,
+      action   TEXT NOT NULL,
+      account  TEXT NOT NULL,
+      detail   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ix_admin_actions_ts ON admin_actions(ts_utc);
     """,
 }
 
