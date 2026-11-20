@@ -189,3 +189,21 @@ def test_logins_by_user_by_week_keeps_the_most_recent_weeks_only(conn):
     assert weeks[0] == date(2025, 12, 1) and series == {"ana": [1, 0, 0, 0, 0]}   # Dec 3 is in the week of Dec 1
     weeks, series = reports.logins_by_user_by_week(conn, date(2025, 1, 1), date(2025, 12, 31), weeks=4)
     assert len(weeks) == 4 and series == {}                                        # no sign-in in the last four weeks
+
+
+def test_activity_by_user_by_week_counts_sign_ins_and_the_apps_activity_events(conn):
+    u = User(1, "ana", None, "user", True, False, None, 1, "2026-01-01T00:00:00+00:00", None)
+    names = ("search", "upload")
+    at = lambda minute: datetime(2025, 12, 3, 15, minute, tzinfo=timezone.utc)   # the week of Dec 1
+    events.log_event(conn, "login", user=u, now=at(0))
+    events.log_event(conn, "search", user=u, now=at(1), allowed=names)
+    events.log_event(conn, "search", user=u, now=at(2), allowed=names)
+    events.log_event(conn, "upload", user=u, now=at(3), allowed=names)
+    events.log_event(conn, "logout", user=u, now=at(4))
+    events.log_event(conn, "login_failed", user=u, now=at(5))
+    events.log_event(conn, "login_failed", user=None, now=at(6))
+    span = (conn, date(2025, 12, 1), date(2025, 12, 7))
+    assert reports.activity_by_user_by_week(*span, events=names)[1] == {"ana": [4]}
+    assert reports.activity_by_user_by_week(*span, events=names, activity=("upload",))[1] == {"ana": [2]}
+    assert reports.activity_by_user_by_week(*span)[1] == reports.logins_by_user_by_week(*span)[1] == {"ana": [1]}
+    assert reports.activity_by_user_by_week(*span, events=names, exclude={"ana"})[1] == {}

@@ -135,19 +135,32 @@ def active_users_by_period(
     return out
 
 
+def activity_by_user_by_week(
+    conn: sqlite3.Connection, start: date, end: date, exclude=None, *,
+    events: Sequence[str] = (), activity: Sequence[str] | None = None, weeks: int = 52,
+) -> tuple[list[date], dict[str, list[int]]]:
+    """Activity per account for each week in [start, end], the most recent `weeks` weeks at most.
+
+    Activity is the same set that makes an account active: every sign-in plus every event in
+    `activity` (None: all of `events`). Returns the week starts (Mondays, oldest first) and, for every
+    account with activity in those weeks, its count per week in the same order, by username.
+    """
+    return _by_user_by_week(conn, start, end, exclude, _activity(events, activity), weeks)
+
+
 def logins_by_user_by_week(
     conn: sqlite3.Connection, start: date, end: date, exclude=None, *, weeks: int = 52,
 ) -> tuple[list[date], dict[str, list[int]]]:
-    """Sign-ins per account for each week in [start, end], the most recent `weeks` weeks at most.
+    """Sign-ins only, per account per week; `activity_by_user_by_week` with no app events."""
+    return _by_user_by_week(conn, start, end, exclude, CORE_ACTIVITY_EVENTS, weeks)
 
-    Returns the week starts (Mondays, oldest first) and, for every account with a sign-in in those
-    weeks, its count per week in the same order, by username.
-    """
+
+def _by_user_by_week(conn, start: date, end: date, exclude, names, weeks: int) -> tuple[list[date], dict[str, list[int]]]:
     periods = list(_periods(start, end, "week"))[-weeks:]
     index = {p_start: i for i, (p_start, _) in enumerate(periods)}
     series: dict[str, list[int]] = {}
     for r in _fetch(conn, start, end, exclude):
-        if r["event"] != "login" or r["username"] is None:
+        if r["event"] not in names or r["username"] is None:
             continue
         week = week_start(local_date(r["ts_utc"]))
         if week in index:

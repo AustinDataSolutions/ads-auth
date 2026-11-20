@@ -22,7 +22,7 @@ DEFINITIONS = (
 )
 
 
-# Line colours for the weekly sign-ins chart, one per account in a fixed order (first account by
+# Line colours for the weekly activity chart, one per account in a fixed order (first account by
 # username gets the first colour). Eight colourblind-safe hues; a page with more accounts than that
 # lets Streamlit choose, since cycling the same eight would make two accounts look alike.
 SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
@@ -154,16 +154,30 @@ def render_open_sessions(st_module, sessions, hold_minutes=None, detailed=False)
     )
 
 
+def render_activity_chart(st_module, weeks, activity_by_user) -> None:
+    """One line per account: its activity (sign-ins plus the app's counted actions) in each week of
+    the range, the most recent CHART_WEEKS at most."""
+    _weekly_chart(st_module, weeks, activity_by_user, "Actions", "No activity in this range.",
+                  "Each account's activity in each week of the range: sign-ins plus every action counted toward "
+                  f"an active user (see above), the most recent {CHART_WEEKS} weeks at most. Weeks start on Monday. "
+                  "The date range and excluded accounts above apply.")
+
+
 def render_logins_chart(st_module, weeks, logins_by_user) -> None:
-    """One line per account: sign-ins in each week of the range, the most recent CHART_WEEKS at most."""
-    if not logins_by_user:
-        st_module.caption("No sign-ins in this range.")
+    """Sign-ins only. Kept for apps that call it; the page itself draws `render_activity_chart`."""
+    _weekly_chart(st_module, weeks, logins_by_user, "Sign-ins", "No sign-ins in this range.",
+                  f"Sign-ins per account in each week of the range, the most recent {CHART_WEEKS} weeks at most. "
+                  "Weeks start on Monday. The date range and excluded accounts above apply.")
+
+
+def _weekly_chart(st_module, weeks, by_user, y_label: str, empty: str, caption: str) -> None:
+    if not by_user:
+        st_module.caption(empty)
         return
-    chart = pd.DataFrame(logins_by_user, index=pd.Index(weeks, name="Week of"))
+    chart = pd.DataFrame(by_user, index=pd.Index(weeks, name="Week of"))
     colors = list(SERIES_COLORS[:len(chart.columns)]) if len(chart.columns) <= len(SERIES_COLORS) else None
-    st_module.line_chart(chart, x_label="Week of", y_label="Sign-ins", color=colors, height=320, width="stretch")
-    st_module.caption(f"Sign-ins per account in each week of the range, the most recent {CHART_WEEKS} weeks at most. "
-                      "Weeks start on Monday. The date range and excluded accounts above apply.")
+    st_module.line_chart(chart, x_label="Week of", y_label=y_label, color=colors, height=320, width="stretch")
+    st_module.caption(caption)
 
 
 def render(st_module, settings, user: User) -> None:
@@ -199,7 +213,8 @@ def render(st_module, settings, user: User) -> None:
         monthly = reports.active_users_by_period(conn, start, end, "month", exclude=exclude, events=names, activity=settings.activity_events)
         daily = reports.active_users_by_period(conn, start, end, "day", exclude=exclude, events=names, activity=settings.activity_events)
         per_user = reports.per_user_totals(conn, start, end, exclude=exclude, events=names)
-        weeks, logins_by_user = reports.logins_by_user_by_week(conn, start, end, exclude=exclude, weeks=CHART_WEEKS)
+        weeks, activity_by_user = reports.activity_by_user_by_week(conn, start, end, exclude=exclude, events=names,
+                                                                   activity=settings.activity_events, weeks=CHART_WEEKS)
         all_events = reports.combined_events_rows(conn, settings.app_name, exclude=exclude)
 
     def frame(rows):
@@ -209,7 +224,9 @@ def render(st_module, settings, user: User) -> None:
             "Complete": "yes" if r.complete else "in progress",
         } for r in reversed(rows)])                     # newest period first
 
-    st_module.subheader("Per user")
+    st_module.subheader("Weekly activity by user")
+    render_activity_chart(st_module, weeks, activity_by_user)
+    st_module.subheader("Activity by user (whole period)")
     st_module.dataframe(pd.DataFrame([{
         "User": r.username, "Logins": r.logins, **{labels[name]: r.counts[name] for name in names},
     } for r in per_user]), hide_index=True, width="stretch")
@@ -217,8 +234,6 @@ def render(st_module, settings, user: User) -> None:
     st_module.dataframe(frame(daily), hide_index=True, width="stretch")
     st_module.subheader("Weekly active users")
     st_module.dataframe(frame(weekly), hide_index=True, width="stretch")
-    st_module.subheader("Weekly sign-ins by user")
-    render_logins_chart(st_module, weeks, logins_by_user)
     st_module.subheader("Monthly active users")
     st_module.dataframe(frame(monthly), hide_index=True, width="stretch")
 

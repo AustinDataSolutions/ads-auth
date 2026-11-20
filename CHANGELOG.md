@@ -5,6 +5,23 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.8.0 (2026-11-20)
+
+Disclosure: unaffected in what is stored, logged, or sent. The chart now shows each account's
+recorded actions per week, which the per-user table and the downloads already showed as totals. An
+app whose disclosure describes the chart as weekly sign-ins should say weekly activity instead, for
+example "a chart of each account's activity each week".
+
+- The Usage statistics chart is **Weekly activity by user**: per account per week, every sign-in
+  plus every event that counts toward an active user (`settings.activity_events`, all of the app's
+  events by default). Sign-outs and failed sign-ins are not counted. The y-axis reads "Actions".
+  The apps expect about one sign-in a week, so a sign-ins chart was mostly flat.
+- The chart comes first, straight after the date range and excluded accounts, above the tables.
+- The per-user table is renamed **Activity by user (whole period)**. Its download keeps its name.
+- New `usage.reports.activity_by_user_by_week(conn, start, end, exclude, *, events, activity, weeks)`
+  and `ui.reports.render_activity_chart`. `logins_by_user_by_week` and `render_logins_chart` stay
+  for apps that call them.
+
 ## v1.7.0 (2026-11-20)
 
 Disclosure: affected. The database has a new table, the admin log, with one row for each account

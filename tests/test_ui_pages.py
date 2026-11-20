@@ -93,10 +93,10 @@ def test_reports_for_manager_show_tables_and_three_downloads(settings):
     assert reports.DEFINITIONS in captions                               # no app-specific wording declared
     assert len(st.of("dataframe")) == 4                                  # monthly, weekly, daily, per user
     assert [call[1][0] for call in st.of("subheader")] == [
-        "Per user", "Daily active users", "Weekly active users", "Weekly sign-ins by user",
-        "Monthly active users", "Downloads"]
+        "Weekly activity by user", "Activity by user (whole period)", "Daily active users",
+        "Weekly active users", "Monthly active users", "Downloads"]
     (chart,) = st.of("line_chart")
-    assert list(chart[1][0].columns) == ["m"] and chart[1][0]["m"].sum() == 1 and chart[2]["color"] == ["#2a78d6"]
+    assert list(chart[1][0].columns) == ["m"] and chart[1][0]["m"].sum() == 2 and chart[2]["color"] == ["#2a78d6"]
     daily_frame = st.of("dataframe")[1][1][0]
     assert len(daily_frame) == 61 and list(daily_frame["Period start"])[-1] == date(2026, 9, 1)
     assert daily_frame.loc[daily_frame["Period start"] == date(2026, 10, 1), "Active users"].tolist() == [1]
@@ -304,7 +304,7 @@ def test_report_about_names_the_person_and_the_filters(settings):
     assert "Periods" not in about
 
 
-def test_weekly_sign_ins_chart_has_one_line_per_account_in_the_range(settings):
+def test_weekly_activity_chart_has_one_line_per_account_in_the_range(settings):
     def user(n, name):
         return User(n, name, None, "user", True, False, None, 1, "2026-01-01T00:00:00+00:00", None)
     with db.connection(settings.db_path) as conn:
@@ -313,14 +313,20 @@ def test_weekly_sign_ins_chart_has_one_line_per_account_in_the_range(settings):
         events.log_event(conn, "login", user=user(1, "ana"), now=datetime(2026, 9, 9, 15, tzinfo=timezone.utc))
         events.log_event(conn, "login", user=user(3, "ops-test"), now=datetime(2026, 9, 9, 15, tzinfo=timezone.utc))
         events.log_event(conn, "login", user=user(1, "ana"), now=datetime(2026, 8, 20, 15, tzinfo=timezone.utc))  # before the range
+        for minute in (1, 2):                                                   # app activity counts as well as sign-ins
+            events.log_event(conn, "search", user=user(1, "ana"), now=datetime(2026, 9, 9, 15, minute, tzinfo=timezone.utc),
+                             allowed=settings.events)
+        events.log_event(conn, "logout", user=user(1, "ana"), now=datetime(2026, 9, 9, 16, tzinfo=timezone.utc))   # not activity
+        events.log_event(conn, "login_failed", user=user(2, "bo"), now=datetime(2026, 9, 9, 16, tzinfo=timezone.utc))
     st = FakeSt(dates={"reports_from": date(2026, 9, 1), "reports_to": date(2026, 9, 14)})
     reports.render(st, settings, _user("manager"))
     (chart,) = st.of("line_chart")
     frame = chart[1][0]
     assert list(frame.columns) == ["ana", "bo"]                                 # by username; ops-test excluded
     assert list(frame.index) == [date(2026, 8, 31), date(2026, 9, 7), date(2026, 9, 14)] and frame.index.name == "Week of"
-    assert frame["ana"].tolist() == [0, 1, 0] and frame["bo"].tolist() == [2, 1, 0]
+    assert frame["ana"].tolist() == [0, 3, 0] and frame["bo"].tolist() == [2, 1, 0]
     assert chart[2]["color"] == ["#2a78d6", "#eb6834"] and chart[2]["x_label"] == "Week of"
+    assert chart[2]["y_label"] == "Actions"
     st = FakeSt(dates={"reports_from": date(2027, 1, 1), "reports_to": date(2027, 1, 14)})
     reports.render(st, settings, _user("manager"))
-    assert not st.of("line_chart") and "No sign-ins in this range." in [c[1][0] for c in st.of("caption")]
+    assert not st.of("line_chart") and "No activity in this range." in [c[1][0] for c in st.of("caption")]
