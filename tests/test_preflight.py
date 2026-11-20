@@ -37,7 +37,7 @@ def test_unwritable_data_dir(tmp_path):
 def test_ok_migrates_and_writes_lock(tmp_path):
     data = tmp_path / "data"
     code, text = _run(_settings(data, is_render=True))
-    assert code == 0 and f"schema v{db.SCHEMA_VERSION}" in text and "auth=required" in text and "stay_signed_in=off" in text
+    assert code == 0 and f"schema v{db.SCHEMA_VERSION}" in text and "auth=required" in text and "stay_signed_in=off" in text and "password_reset=off" in text
     code, text = _run(_settings(data, cookie_secret="k" * 32))
     assert code == 0 and "stay_signed_in=on" in text
     assert (data / "app.db").exists() and (data / "serving.lock").exists()

@@ -27,7 +27,7 @@ def test_log_event_known_and_anonymous(conn):
 
 
 def test_log_event_accepts_core_names_and_the_apps_allowed_names(conn):
-    assert events.CORE_EVENTS == {"login", "login_failed", "logout"}
+    assert events.CORE_EVENTS == {"login", "login_failed", "logout", "reset_link_sent", "password_reset"}
     assert events.CORE_ACTIVITY_EVENTS == {"login"}
     events.log_event(conn, "logout", user=U, now=T0)                             # core: always accepted
     events.log_event(conn, "upload", user=U, now=T0, allowed=("upload", "tag"))  # declared by the app

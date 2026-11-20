@@ -70,7 +70,7 @@ class Cli:
 
     def create_user(self, a) -> int:
         if a.temporary:
-            user, temp = self.store.create_user(a.username, full_name=a.full_name, role=a.role, temporary=True)
+            user, temp = self.store.create_user(a.username, full_name=a.full_name, role=a.role, temporary=True, email=a.email)
             self.out(f"Created {user.username} ({user.role}). Temporary password, shown once, expires in 90 days:")
             self.out(temp)
             return 0
@@ -78,7 +78,7 @@ class Cli:
         if password != self.prompt("Confirm password: "):
             self.out("Passwords do not match.")
             return 1
-        user, _ = self.store.create_user(a.username, password=password, full_name=a.full_name, role=a.role)
+        user, _ = self.store.create_user(a.username, password=password, full_name=a.full_name, role=a.role, email=a.email)
         self.out(f"Created {user.username} ({user.role}).")
         return 0
 
@@ -96,6 +96,14 @@ class Cli:
     def set_name(self, a) -> int:
         user = self.store.set_full_name(a.username, a.full_name)
         self.out(f"{user.username}: display name set.")
+        return 0
+
+    def set_email(self, a) -> int:
+        user = self.store.set_email(a.username, a.email)
+        if user.email:
+            self.out(f"{user.username}: email set to {user.email}. \"Forgot your password?\" emails go there.")
+        else:
+            self.out(f"{user.username}: email removed. This account can't use \"Forgot your password?\".")
         return 0
 
     def rename_user(self, a) -> int:
@@ -139,9 +147,10 @@ class Cli:
         if not rows:
             self.out("No users.")
             return 0
-        self.out(f"{'username':<40} {'role':<8} {'active':<7} {'must_change':<12} last_login_utc")
+        self.out(f"{'username':<40} {'role':<8} {'active':<7} {'must_change':<12} {'last_login_utc':<26} email")
         for u in rows:
-            self.out(f"{u.username:<40} {u.role:<8} {'yes' if u.is_active else 'no':<7} {'yes' if u.must_change_password else 'no':<12} {u.last_login_utc or '-'}")
+            self.out(f"{u.username:<40} {u.role:<8} {'yes' if u.is_active else 'no':<7} {'yes' if u.must_change_password else 'no':<12} "
+                     f"{u.last_login_utc or '-':<26} {u.email or '-'}")
         return 0
 
     def import_users(self, a) -> int:
@@ -209,9 +218,11 @@ def build_parser(prog: str = "manage.py", commands: Iterable[Command] = ()) -> a
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("create-user"); s.add_argument("username"); s.add_argument("--full-name"); s.add_argument("--role", choices=ROLES, default="user"); s.add_argument("--temporary", action="store_true", help="generate a temporary password instead of prompting")
+    s.add_argument("--email", help="where password-reset links go; defaults to the username when it is an address")
     s = sub.add_parser("set-password"); s.add_argument("username")
     s = sub.add_parser("set-role"); s.add_argument("username"); s.add_argument("role", choices=ROLES)
     s = sub.add_parser("set-name"); s.add_argument("username"); s.add_argument("full_name")
+    s = sub.add_parser("set-email", help="where password-reset links go; omit the address to remove it"); s.add_argument("username"); s.add_argument("email", nargs="?", default="")
     s = sub.add_parser("rename-user", help="change a sign-in name; signs the account out"); s.add_argument("username"); s.add_argument("new_username")
     s = sub.add_parser("deactivate-user"); s.add_argument("username")
     s = sub.add_parser("reactivate-user"); s.add_argument("username")

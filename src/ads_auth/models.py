@@ -25,6 +25,25 @@ def normalize_username(raw: str) -> str:
     return name
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def looks_like_email(text: str | None) -> bool:
+    return bool(text) and bool(_EMAIL_RE.match(text))
+
+
+def normalize_email(raw: str | None) -> str | None:
+    """Trimmed and lowercased; None for blank. Raises ValueError for something that isn't an address."""
+    if raw is None:
+        return None
+    text = unicodedata.normalize("NFKC", str(raw)).strip().casefold()
+    if not text:
+        return None
+    if not looks_like_email(text) or len(text) > 254:
+        raise ValueError("Email must be an address like name@example.com.")
+    return text
+
+
 @dataclass(frozen=True)
 class User:
     """A user row without its password hash, so it can be logged or shown safely."""
@@ -39,6 +58,7 @@ class User:
     session_version: int
     created_utc: str
     last_login_utc: str | None
+    email: str | None = None            # where password-reset links go; None turns self-service reset off
 
     def has_role(self, minimum: str) -> bool:
         return ROLE_RANK[self.role] >= ROLE_RANK[minimum]
@@ -56,4 +76,5 @@ class User:
             session_version=row["session_version"],
             created_utc=row["created_utc"],
             last_login_utc=row["last_login_utc"],
+            email=row["email"] if "email" in row.keys() else None,
         )

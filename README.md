@@ -22,9 +22,17 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   `user`, `manager`, or `admin`. An administrator can give someone a temporary password, which must
   be changed at first sign-in. Accounts can be imported from another app's database, whether
   that app uses this package or keeps its accounts in a Flask-style `user` table.
+- **Forgot your password?** When the app has email settings and knows its own address, the sign-in
+  screen offers a reset link. The person types their username or email; the app answers the same
+  way whether or not it matched, and emails a link that works once, for 30 minutes, to the
+  account's email address. Requesting a link changes nothing; following it lets the person choose
+  a new password, which signs them out everywhere. Each account has an optional email for this,
+  filled in from the username when the username is an address; accounts without one are reset by
+  an administrator. At most three links go out per account per hour. Only a fingerprint (SHA-256)
+  of each link is stored, and the rows are deleted a day after they expire.
 - **Managing users from the sidebar.** Administrators get a Manage users section in the sidebar,
-  collapsed until they open it. It resets a password, adds an account (name, username, role),
-  changes a role, and deletes an account. Deleting asks for the username to be typed and offers
+  collapsed until they open it. It resets a password, adds an account (name, username, email,
+  role), edits an account's name, email and role, and deletes an account. Deleting asks for the username to be typed and offers
   "Deactivate instead"; a deactivated account shows a Reactivate button. Passwords are never typed
   there: a reset, a new account and a reactivation each get a random temporary password, shown
   once, which the person must change at their next sign-in. An administrator's own account is not
@@ -55,7 +63,7 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   valid, that sign-in has not been switched off on a hosted server, that the data folder can be
   written to, and that the database is up to date.
 - **A command line for operators.** There are commands to create an account, set a password, change
-  a role or a display name, change a username, deactivate or reactivate an account, delete an
+  a role, a display name or an email (`set-email`), change a username, deactivate or reactivate an account, delete an
   account, unlock an account, list accounts, import accounts, back up or restore the database,
   remove old usage rows, and export usage rows. An app can add commands of its own.
   `rename-user <old> <new>` keeps the password, role, and display name, signs the account out, and
@@ -75,8 +83,9 @@ read or write no files when they are imported, so they can be tested without a r
 | `ads_auth.db` | Opening the SQLite database and applying schema changes. The changes are numbered and safe to apply more than once. |
 | `ads_auth.models`, `hashing`, `policy`, `store` | Accounts, roles, password hashing, the lockout and session rules, temporary passwords, and importing accounts from another app's database. |
 | `ads_auth.usage.events`, `usage.reports` | Writing usage rows, the thirteen-month retention, the daily, weekly and monthly active-user figures, and the CSV and Excel exports. |
-| `ads_auth.admin` | The account changes an administrator makes from the app (create, reset password, change role, deactivate, reactivate, delete) and the admin log that records them. |
-| `ads_auth.ui.gate`, `ui.account`, `ui.admin` | The sign-in screen, the sidebar with the sign-out button, the change-password forms, and the Manage users section. |
+| `ads_auth.admin` | The account changes an administrator makes from the app (create, reset password, edit name, email and role, deactivate, reactivate, delete) and the admin log that records them. |
+| `ads_auth.resets`, `ads_auth.mail` | Self-service reset links (request, check, complete, prune, the email text) and sending mail through an SMTP relay such as Brevo. |
+| `ads_auth.ui.gate`, `ui.account`, `ui.admin`, `ui.reset` | The sign-in screen, the sidebar with the sign-out button, the change-password forms, the Manage users section, and the "Forgot your password?" screens. |
 | `ads_auth.ui.reconnect` | `keep_sessions_on_reconnect()`, which lets a browser tab whose connection dropped rejoin its own session instead of starting an empty one. "Staying signed in" below explains it. |
 | `ads_auth.ui.ads_apps` | The shared links to other ADS Streamlit tools, for placement after an app's own sidebar items. |
 | `ads_auth.ui.reports`, `ui.about`, `ui.live_sessions` | The Usage statistics page (with who has the app open now) and the About page. |
@@ -134,6 +143,11 @@ The fields mean the following.
   to choose them. Two related fields, `activity_events` and `definitions`, are explained there too.
 - `pages` is filled in by the app's router, as shown below, so the package's pages can link to each
   other without knowing anything about the app.
+- `mail` and `public_url` turn on "Forgot your password?". `mail_from_environ(environ)` reads
+  `SMTP_HOST`, `SMTP_PORT` (587 by default), `SMTP_USER`, `SMTP_PASSWORD` and `EMAIL_FROM`, and
+  returns None when `SMTP_HOST` is blank; on Render these are best kept in one environment group
+  that every app links to. `public_url_from_environ(environ)` reads `APP_URL`, else Render's own
+  `RENDER_EXTERNAL_URL`. A bare `EMAIL_FROM` address is sent as "Austin Data Solutions <address>".
 
 The helper `auth_mode_from_environ` reads the `AUTH_MODE` environment variable and checks it, and
 `exclude_users_from_environ` reads a comma-separated `USAGE_EXCLUDE_USERS` variable.
@@ -202,7 +216,8 @@ the job before it looks at anything else: the session is emptied, the connection
 refused, and the browser is told to drop it. A request that overtakes the click before that flag is
 written loses the click, as it would any click, and the account simply stays signed in. The package
 owns that key, with `auth_cookie_action` and `auth_cookie_blocked`; an app leaves all three alone.
-(It also owns the Manage users section's keys, which all start with `auth_admin_`.)
+(It also owns the Manage users section's keys, which start with `auth_admin_`, and the reset
+screens' keys, which start with `auth_reset_`.)
 Two limits follow from how Streamlit works. A page that does not call the gate, such as the About
 page, does not finish a sign-out that was cut short; the next page that does call it will. And a
 run of the app's own that is still working when the session is emptied (one that switched

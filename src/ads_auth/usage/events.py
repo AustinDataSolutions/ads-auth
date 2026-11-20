@@ -11,8 +11,9 @@ from datetime import datetime
 from ads_auth.db import to_iso, utc_now
 from ads_auth.models import User
 
-# The package owns these three names; every other event name is declared by the app on AppSettings.events.
-CORE_EVENTS = frozenset({"login", "login_failed", "logout"})
+# The package owns these names; every other event name is declared by the app on AppSettings.events.
+# reset_link_sent: a "Forgot your password?" email went out; password_reset: a reset link was used.
+CORE_EVENTS = frozenset({"login", "login_failed", "logout", "reset_link_sent", "password_reset"})
 LOGGER = logging.getLogger(__name__)
 CORE_ACTIVITY_EVENTS = frozenset({"login"})
 RETENTION_MONTHS = 13

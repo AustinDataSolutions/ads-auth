@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from ads_auth import admin, db
+from ads_auth import admin, db, resets
 from ads_auth.usage import events
 
 BACKUP_PREFIX = "app-"
@@ -59,12 +59,13 @@ def backup_due(data_dir, now: datetime | None = None) -> bool:
 def run_once(data_dir, db_path, now: datetime | None = None, *, extra: ExtraTask | None = None) -> dict:
     """One maintenance pass. Returns what it did, for logs and tests."""
     now = now or db.utc_now()
-    done: dict = {"backup": None, "pruned": 0, "admin_pruned": 0}
+    done: dict = {"backup": None, "pruned": 0, "admin_pruned": 0, "resets_pruned": 0}
     if backup_due(data_dir, now):
         done["backup"] = make_backup(data_dir, db_path, now)
     with db.connection(db_path) as conn:
         done["pruned"] = events.prune_events(conn, now)
         done["admin_pruned"] = admin.prune(conn, now)
+        done["resets_pruned"] = resets.prune(conn, now)
     if extra is not None:
         done.update(extra(now) or {})
     return done

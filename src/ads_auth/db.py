@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -60,6 +60,23 @@ MIGRATIONS: dict[int, str] = {
       detail   TEXT
     );
     CREATE INDEX IF NOT EXISTS ix_admin_actions_ts ON admin_actions(ts_utc);
+    """,
+    # Self-service password reset: an optional email per account (filled from the username where the
+    # username is an address) and the outstanding reset links, kept only as a SHA-256 of the token.
+    3: """
+    ALTER TABLE users ADD COLUMN email TEXT;
+    UPDATE users SET email = username
+      WHERE email IS NULL AND username LIKE '%_@_%._%' AND username NOT LIKE '%@%@%';
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id              INTEGER PRIMARY KEY,
+      user_id         INTEGER NOT NULL,
+      token_hash      TEXT    NOT NULL UNIQUE,
+      session_version INTEGER NOT NULL,
+      created_utc     TEXT    NOT NULL,
+      expires_utc     TEXT    NOT NULL,
+      used_utc        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ix_password_resets_user ON password_resets(user_id, created_utc);
     """,
 }
 

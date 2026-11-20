@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from ads_auth.mail import MailSettings
 from ads_auth.tokens import MIN_SECRET_LENGTH
 from ads_auth.usage.events import CORE_ACTIVITY_EVENTS, CORE_EVENTS
 
@@ -43,6 +44,16 @@ def cookie_secret_from_environ(environ) -> str:
     return ""
 
 
+def public_url_from_environ(environ) -> str:
+    """The address people open the app at, for links in emails: `APP_URL`, else Render's own
+    `RENDER_EXTERNAL_URL`, else empty (self-service password reset off)."""
+    for name in ("APP_URL", "RENDER_EXTERNAL_URL"):
+        value = (environ.get(name, "") or "").strip().rstrip("/")
+        if value:
+            return value
+    return ""
+
+
 @dataclass(frozen=True, kw_only=True)
 class AppSettings:
     """What the package needs to know about the app it serves.
@@ -71,6 +82,10 @@ class AppSettings:
     cookie_secret:       signs the "stay signed in" cookie that lets a browser reload keep the session.
                          Empty (the default) turns the cookie off: a reload then shows the sign-in screen,
                          as before. At least 32 characters when set; `cookie_secret_from_environ` reads it.
+    mail:                SMTP settings for the package's own emails (`mail.mail_from_environ`). None turns
+                         self-service password reset off.
+    public_url:          the address people open the app at, used to build the link in a reset email
+                         (`public_url_from_environ`). Empty turns self-service password reset off.
     """
 
     app_name: str
@@ -86,6 +101,8 @@ class AppSettings:
     definitions: str = ""
     pages: dict[str, object] = field(default_factory=dict, compare=False, repr=False)
     cookie_secret: str = field(default="", repr=False)
+    mail: MailSettings | None = field(default=None, repr=False)
+    public_url: str = ""
 
     def __post_init__(self) -> None:
         if not self.app_name or not self.app_name.strip():
@@ -128,6 +145,11 @@ class AppSettings:
     @property
     def auth_disabled(self) -> bool:
         return self.auth_mode == "disabled"
+
+    @property
+    def password_reset_enabled(self) -> bool:
+        """True when the sign-in screen offers "Forgot your password?": email and the app's address are set."""
+        return bool(self.mail and self.public_url and not self.auth_disabled)
 
     @property
     def cookie_enabled(self) -> bool:

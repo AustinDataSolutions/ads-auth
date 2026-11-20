@@ -5,6 +5,56 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.10.0 (2026-11-20)
+
+Disclosure: affected. Self-service password reset. When an app sets `mail` and `public_url`:
+
+- Each account has an optional **email address**, used only for reset links. Schema v3 fills it in
+  from the username where the username is an address; administrators set it in Manage users or
+  with `set-email`. It is shown to administrators.
+- A **reset request** stores the account, a SHA-256 fingerprint of the link (never the link
+  itself), the account's session version, and when it was made, expires (30 minutes) and was
+  used. Rows are deleted a day after they expire, and are in the daily backups until then.
+- The **email** goes through the app's SMTP relay (Brevo for the ADS apps): Brevo receives the
+  person's email address, their name and username, and the link.
+- Two new usage events, owned by the package: `reset_link_sent` (attributed to the account) and
+  `password_reset`. A request that matches no account, or an account without an email, records
+  nothing. Each event also gives one server-log line, like the others.
+- Two new admin-log actions: `name_changed` and `email_changed` (whether an email was set or
+  removed, never the address).
+- The link carries the token in the address (`?reset=...`). The app removes it from the address bar
+  at once, but the hosting service's request log records the first request; that is why the link
+  works once and only for 30 minutes.
+
+An app that adopts this release should say so, for example:
+
+> **Password reset by email.** If you forget your password, the sign-in screen can email you a link
+> to choose a new one. Your account's email address (your username, if it is an address) is stored
+> for this and shown to the administrator. When you ask for a link, the app records that it sent
+> one and keeps a fingerprint of the link, never the link itself, for a day after it expires; the
+> email is sent through Brevo, our email provider, which receives your address, your name and the
+> link. Asking for a link changes nothing until you use it.
+
+- Sign-in screen: **Forgot your password?** (only when `settings.password_reset_enabled`), the
+  request screen (username or email), the same "Check your email" message whatever was typed, the
+  page the link opens (new password twice), "Password changed", and "expired or already used"
+  with "Send a new link". At most three links per account per hour; a newer link, any password
+  change, admin reset, role change, rename, deactivation, or email change ends an older one. Lookup
+  is by username, then by email when exactly one active account has it.
+- Manage users: **Change role** is now **Edit account** (name, email, role in one save; only a role
+  change signs the person out). **Add user** has an Email field, filled from an address username
+  when left blank. The user list reads "Name (username)", and its status line says when an account
+  has no email.
+- CLI: `set-email <username> [email]` (no address removes it), `create-user --email`, and an email
+  column in `list-users`. `rename-user` moves an email that was the old username to the new one.
+- `AppSettings.mail` and `AppSettings.public_url`; `mail_from_environ` and `public_url_from_environ`
+  (`APP_URL`, else `RENDER_EXTERNAL_URL`). `mail_from_environ` refuses a half-set configuration.
+  Preflight prints `password_reset=on|off`.
+- New modules `ads_auth.resets`, `ads_auth.mail`, `ads_auth.ui.reset`; `User.email`;
+  `UserStore.set_email`, `find_for_reset`, `set_password`; `admin.edit_account`.
+  `maintenance.run_once` reports `resets_pruned`. The package owns session keys starting
+  `auth_reset_`.
+
 ## v1.9.0 (2026-11-20)
 
 Disclosure: unaffected. Nothing new is stored, logged, or sent. Renaming an account changes the

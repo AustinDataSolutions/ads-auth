@@ -14,7 +14,7 @@ def test_paths_and_derived_values(tmp_path):
     assert not tmp_path.joinpath("app.db").exists()        # constructing settings does no I/O
     assert s.pages == {}
     assert s.events == () and s.activity_events == () and s.definitions == ""
-    assert s.all_events == {"login", "login_failed", "logout"} and s.all_activity_events == {"login"}
+    assert s.all_events == {"login", "login_failed", "logout", "reset_link_sent", "password_reset"} and s.all_activity_events == {"login"}
 
 
 def test_validation(tmp_path):
@@ -29,7 +29,7 @@ def test_event_vocabulary_is_app_supplied(tmp_path):
     s = AppSettings(**base, events=("upload", "process", "download"))
     assert s.events == ("upload", "process", "download")
     assert s.activity_events == ("upload", "process", "download")      # default: every app event is activity
-    assert s.all_events == {"login", "login_failed", "logout", "upload", "process", "download"}
+    assert s.all_events == {"login", "login_failed", "logout", "reset_link_sent", "password_reset", "upload", "process", "download"}
     assert s.all_activity_events == {"login", "upload", "process", "download"}
     s = AppSettings(**base, events=["upload", "tag"], activity_events=["upload"])
     assert s.events == ("upload", "tag") and s.activity_events == ("upload",)

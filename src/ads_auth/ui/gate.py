@@ -254,6 +254,12 @@ def require_login(st_module, settings) -> User:
         st_module.warning("Local development mode: authentication is disabled and nothing is recorded.")
         return LOCAL_DEV_USER
 
+    from ads_auth.ui import reset as reset_ui
+    reset_ui.capture_token(st_module)
+    if reset_ui.render_link_page(st_module, settings):     # an emailed reset link was opened
+        st_module.stop()
+        raise RuntimeError("unreachable")
+
     store = _store(settings)
     user = current_user(st_module, settings)
     if user is None and settings.cookie_enabled:
@@ -270,12 +276,16 @@ def require_login(st_module, settings) -> User:
     if store.count_users() == 0:
         st_module.info(SETUP_MESSAGE)
         st_module.stop()
+    if reset_ui.render_request_steps(st_module, settings):   # "Forgot your password?" and "Check your email"
+        st_module.stop()
+        raise RuntimeError("unreachable")
     if st_module.session_state.pop(EXPIRED_NOTICE, False):
         st_module.info("Your session ended. Please sign in again.")
     with st_module.form("login_form", clear_on_submit=False):
         username = st_module.text_input("Username", key="login_username", autocomplete="username")
         password = st_module.text_input("Password", type="password", key="login_password", autocomplete="current-password")
         submitted = st_module.form_submit_button("Sign in")
+    reset_ui.render_forgot_button(st_module, settings)
     link(st_module, settings, "about", "About this app", "ℹ️")
     if submitted:
         found, outcome = store.verify_login(username, password)

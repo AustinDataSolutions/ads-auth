@@ -94,6 +94,7 @@ def test_add_user_creates_the_account_with_a_temporary_password(env):
     _ok(at)
     user = UserStore(env).get_by_username("new.person")
     assert user.full_name == "New Person" and user.role == "manager" and user.must_change_password
+    assert user.email is None                                    # "new.person" is not an address
     assert UserStore(env).verify_login("new.person", at.sidebar.code[0].value)[1] is LoginOutcome.SUCCESS
     assert _rows(env) == [("boss", "created", "new.person", "as manager")]
 
@@ -110,19 +111,41 @@ def test_add_user_reports_a_duplicate_without_recording(env):
     assert _rows(env) == []
 
 
-def test_change_role(env):
+def _save(at):
+    next(b for b in at.button if b.label == "Save changes").click()
+    return _ok(at)
+
+
+def test_edit_account_changes_role_name_and_email_and_logs_each(env):
     at = _signed_in_as("boss")
-    at.radio(key=admin_ui.ACTION).set_value(admin_ui.ROLE)
+    at.radio(key=admin_ui.ACTION).set_value(admin_ui.EDIT)
     _ok(at)
-    at.selectbox(key="auth_admin_user_role").set_value("rita")
+    picker = at.selectbox(key="auth_admin_user_edit")
+    assert "Rita Okafor (rita)" in picker.options                     # name, then the username in parentheses
+    picker.set_value("rita")
     _ok(at)
-    assert at.button(key="auth_admin_role_save").disabled
+    assert any("no email: can't use Forgot your password" in c.value for c in at.sidebar.caption)
+    at.text_input(key="auth_admin_edit_name_rita").input("Rita O.")
+    at.text_input(key="auth_admin_edit_email_rita").input("Rita@Example.org")
     at.radio(key="auth_admin_role_rita").set_value("manager")
+    _save(at)
+    rita = UserStore(env).get_by_username("rita")
+    assert (rita.full_name, rita.email, rita.role) == ("Rita O.", "rita@example.org", "manager")
+    assert _rows(env) == [("boss", "name_changed", "rita", None), ("boss", "email_changed", "rita", "set"),
+                          ("boss", "role_changed", "rita", "user → manager")]
+
+
+def test_edit_account_with_a_bad_email_changes_nothing(env):
+    at = _signed_in_as("boss")
+    at.radio(key=admin_ui.ACTION).set_value(admin_ui.EDIT)
     _ok(at)
-    at.button(key="auth_admin_role_save").click()
+    at.selectbox(key="auth_admin_user_edit").set_value("rita")
     _ok(at)
-    assert UserStore(env).get_by_username("rita").role == "manager"
-    assert _rows(env) == [("boss", "role_changed", "rita", "user → manager")]
+    at.text_input(key="auth_admin_edit_name_rita").input("Changed")
+    at.text_input(key="auth_admin_edit_email_rita").input("not an address")
+    _save(at)
+    assert any("Email must be an address" in e.value for e in at.sidebar.error)
+    assert UserStore(env).get_by_username("rita").full_name == "Rita Okafor" and _rows(env) == []
 
 
 def test_a_deactivated_account_offers_reactivate(env):
@@ -154,3 +177,14 @@ def test_admin_log_table_is_for_admins_only(env):
     assert list(table.columns) == ["When (Eastern)", "Admin", "Action", "Account", "Detail"]
     assert table.iloc[0]["Action"] == "Password reset" and table.iloc[0]["Account"] == "rita"
     assert _user("admin").has_role("admin") and not _user("manager").has_role("admin")
+
+
+def test_add_user_fills_the_email_from_an_address_username(env):
+    at = _signed_in_as("boss")
+    at.radio(key=admin_ui.ACTION).set_value(admin_ui.ADD)
+    _ok(at)
+    at.text_input(key="auth_admin_add_name").input("Maria Lopez")
+    at.text_input(key="auth_admin_add_username").input("Maria.Lopez@AARP.org")
+    next(b for b in at.button if b.label == "Create account").click()
+    _ok(at)
+    assert UserStore(env).get_by_username("maria.lopez@aarp.org").email == "maria.lopez@aarp.org"

@@ -26,13 +26,14 @@ ACTION = "auth_admin_action"
 ROLE_LABEL = {"user": "User", "manager": "Manager", "admin": "Admin"}
 ROLE_HELP = {"user": "Uses the app.", "manager": "Also sees Usage statistics.", "admin": "Also manages users."}
 
-RESET, ADD, ROLE, DELETE = "Reset password", "Add user", "Change role", "Delete user"
+RESET, ADD, EDIT, DELETE = "Reset password", "Add user", "Edit account", "Delete user"
 TASKS = {
     RESET: ":material/key: " + RESET,
     ADD: ":material/person_add: " + ADD,
-    ROLE: ":material/badge: " + ROLE,
+    EDIT: ":material/edit: " + EDIT,
     DELETE: ":material/delete: " + DELETE,
 }
+EMAIL_HELP = "Used only for password-reset links. Leave blank to turn self-service reset off for this account."
 
 
 def _day(iso: str | None) -> str:
@@ -56,6 +57,10 @@ def _status(store: UserStore, user: User) -> str:
             bits.append(":orange[temporary password expired]")
         else:
             bits.append(f":orange[temporary password until {_day(user.temp_password_expires_utc)}]")
+    if not user.email:
+        bits.append(":gray[no email: can't use Forgot your password]")
+    elif user.email != user.username:
+        bits.append(f"email `{user.email}`")
     return " · ".join(bits)
 
 
@@ -64,7 +69,7 @@ def _pick(st_module, store: UserStore, me: User, task: str) -> User | None:
 
     def label(username: str) -> str:
         u = users[username]
-        name = f"{u.full_name} · {u.username}" if u.full_name else u.username
+        name = f"{u.full_name} ({u.username})" if u.full_name else u.username
         return name if u.is_active else f"{name} (deactivated)"
 
     names = sorted(users, key=lambda n: (_name(users[n]).casefold(), n))
@@ -140,6 +145,9 @@ def _add(st_module, settings, me: User) -> None:
         full_name = st_module.text_input("Name", key="auth_admin_add_name")
         username = st_module.text_input("Username", key="auth_admin_add_username",
                                         help="No spaces. Not case-sensitive. An email address works.")
+        email = st_module.text_input("Email", key="auth_admin_add_email",
+                                     placeholder="Same as the username if it's an address",
+                                     help=EMAIL_HELP + " Left blank, it's the username when the username is an address.")
         role = st_module.selectbox("Role", ROLES, key="auth_admin_add_role", format_func=ROLE_LABEL.get,
                                    help="User: " + ROLE_HELP["user"] + " Manager: " + ROLE_HELP["manager"]
                                         + " Admin: " + ROLE_HELP["admin"])
@@ -147,7 +155,7 @@ def _add(st_module, settings, me: User) -> None:
     if not submitted:
         return
     try:
-        user, temp_password = admin.create_account(settings.db_path, me, username, full_name, role)
+        user, temp_password = admin.create_account(settings.db_path, me, username, full_name, role, email)
     except (StoreError, ValueError) as exc:
         st_module.error(str(exc))
         return
@@ -155,24 +163,34 @@ def _add(st_module, settings, me: User) -> None:
     st_module.rerun()
 
 
-def _role(st_module, settings, store: UserStore, me: User) -> None:
-    user = _pick(st_module, store, me, "role")
+def _edit(st_module, settings, store: UserStore, me: User) -> None:
+    user = _pick(st_module, store, me, "edit")
     if user is None:
         return
     if not user.is_active:
         _reactivate_offer(st_module, settings, me, user)
-    new_role = st_module.radio("Role", ROLES, index=ROLES.index(user.role), key=f"auth_admin_role_{user.username}",
+    with st_module.form(f"auth_admin_edit_{user.username}", border=False):
+        full_name = st_module.text_input("Name", value=user.full_name or "", key=f"auth_admin_edit_name_{user.username}")
+        email = st_module.text_input("Email", value=user.email or "", placeholder="name@example.com",
+                                     key=f"auth_admin_edit_email_{user.username}", help=EMAIL_HELP)
+        role = st_module.radio("Role", ROLES, index=ROLES.index(user.role), key=f"auth_admin_role_{user.username}",
                                format_func=ROLE_LABEL.get, captions=[ROLE_HELP[r] for r in ROLES])
-    st_module.caption("They're signed out so the new role takes effect.")
-    if st_module.button("Save role", key="auth_admin_role_save", type="primary", width="stretch",
-                        disabled=new_role == user.role):
-        try:
-            admin.change_role(settings.db_path, me, user.username, new_role)
-        except (StoreError, ValueError) as exc:
-            st_module.error(str(exc))
-            return
-        _flash(st_module, f"{_name(user)} is now {ROLE_LABEL[new_role].lower()}.")
-        st_module.rerun()
+        submitted = st_module.form_submit_button("Save changes", type="primary", width="stretch")
+    st_module.caption("Changing the role signs them out. Changing the name or email doesn't.")
+    if not submitted:
+        return
+    try:
+        after = admin.edit_account(settings.db_path, me, user.username, full_name=full_name, email=email, role=role)
+    except (StoreError, ValueError) as exc:
+        st_module.error(str(exc))
+        return
+    if after == user:
+        _flash(st_module, "Nothing to change.")
+    elif after.role != user.role:
+        _flash(st_module, f"Saved. {_name(after)} is now {ROLE_LABEL[after.role].lower()}.")
+    else:
+        _flash(st_module, f"Saved changes to {_name(after)}.")
+    st_module.rerun()
 
 
 def _confirm_delete_body(st_module, settings, me: User, username: str) -> None:
@@ -239,7 +257,7 @@ def render_manage_users(st_module, settings, me: User) -> None:
             _reset(st_module, settings, store, me)
         elif task == ADD:
             _add(st_module, settings, me)
-        elif task == ROLE:
-            _role(st_module, settings, store, me)
+        elif task == EDIT:
+            _edit(st_module, settings, store, me)
         elif task == DELETE:
             _delete(st_module, settings, store, me)

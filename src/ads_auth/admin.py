@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ads_auth.db import connection, to_iso, utc_now
-from ads_auth.models import User
+from ads_auth.models import ROLES, User, normalize_email
 from ads_auth.store import StoreError, UserStore
 from ads_auth.usage.events import retention_cutoff
 
@@ -31,7 +31,9 @@ ROLE_CHANGED = "role_changed"
 DEACTIVATED = "deactivated"
 REACTIVATED = "reactivated"
 DELETED = "deleted"
-ACTIONS = (CREATED, PASSWORD_RESET, ROLE_CHANGED, DEACTIVATED, REACTIVATED, DELETED)
+NAME_CHANGED = "name_changed"
+EMAIL_CHANGED = "email_changed"
+ACTIONS = (CREATED, PASSWORD_RESET, ROLE_CHANGED, DEACTIVATED, REACTIVATED, DELETED, NAME_CHANGED, EMAIL_CHANGED)
 
 ACTION_LABELS = {
     CREATED: "Account created",
@@ -40,6 +42,8 @@ ACTION_LABELS = {
     DEACTIVATED: "Deactivated",
     REACTIVATED: "Reactivated",
     DELETED: "Deleted",
+    NAME_CHANGED: "Name changed",
+    EMAIL_CHANGED: "Email changed",
 }
 
 
@@ -54,7 +58,8 @@ class AdminAction:
 
 def record(conn: sqlite3.Connection, admin: User, action: str, account: str, *,
            detail: str | None = None, now: datetime | None = None) -> None:
-    """Append one row. `detail` is for the role change only ("user → manager")."""
+    """Append one row. `detail` holds the old and new role for a role change ("user → manager"), whether
+    an email was set or removed, and the role a new account was given. Never a name or an address."""
     if action not in ACTIONS:
         raise ValueError(f"Unknown admin action: {action!r}")
     with conn:
@@ -109,13 +114,16 @@ def _log(db_path, admin: User, action: str, account: str, detail: str | None = N
         record(conn, admin, action, account, detail=detail)
 
 
-def create_account(db_path, admin: User, username: str, full_name: str, role: str) -> tuple[User, str]:
-    """New account with a temporary password, returned once."""
+def create_account(db_path, admin: User, username: str, full_name: str, role: str,
+                   email: str | None = None) -> tuple[User, str]:
+    """New account with a temporary password, returned once. A blank `email` takes the username when
+    the username is an address."""
     full_name = (full_name or "").strip()
     if not full_name:
         raise StoreError("Name is required.")
     _check(admin, "")
-    user, temp_password = UserStore(db_path).create_user(username, full_name=full_name, role=role, temporary=True)
+    user, temp_password = UserStore(db_path).create_user(username, full_name=full_name, role=role, temporary=True,
+                                                         email=(email or "").strip() or None)
     _log(db_path, admin, CREATED, user.username, f"as {role}")
     return user, temp_password
 
@@ -141,6 +149,31 @@ def change_role(db_path, admin: User, username: str, role: str) -> User:
     after = store.set_role(before.username, role)
     _log(db_path, admin, ROLE_CHANGED, after.username, f"{before.role} → {role}")
     return after
+
+
+def edit_account(db_path, admin: User, username: str, *, full_name: str, email: str | None, role: str) -> User:
+    """Name, email and role in one save. Only what changed is written and logged; a role change signs
+    the account out, a name or email change doesn't. Everything is checked before anything is written."""
+    _check(admin, username)
+    store = UserStore(db_path)
+    before = _existing(store, username)
+    full_name = (full_name or "").strip()
+    if not full_name:
+        raise StoreError("Name is required.")
+    address = normalize_email(email)            # raises ValueError before anything changes
+    if role not in ROLES:
+        raise StoreError(f"Role must be one of {', '.join(ROLES)}.")
+    user = before
+    if full_name != (before.full_name or ""):
+        user = store.set_full_name(before.username, full_name)
+        _log(db_path, admin, NAME_CHANGED, before.username)
+    if address != before.email:
+        user = store.set_email(before.username, address)
+        _log(db_path, admin, EMAIL_CHANGED, before.username, "removed" if address is None else "set")
+    if role != before.role:
+        user = store.set_role(before.username, role)
+        _log(db_path, admin, ROLE_CHANGED, before.username, f"{before.role} → {role}")
+    return user
 
 
 def deactivate(db_path, admin: User, username: str) -> User:

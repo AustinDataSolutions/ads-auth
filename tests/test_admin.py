@@ -43,7 +43,7 @@ def test_migration_2_adds_the_admin_log_to_an_existing_database(tmp_path):
         conn.executescript(db.MIGRATIONS[1])
         conn.execute("INSERT INTO schema_version(version, applied_utc) VALUES (1, '2026-01-01T00:00:00+00:00')")
         conn.execute("INSERT INTO usage_events(ts_utc, username, event) VALUES ('2026-01-01T00:00:00+00:00', 'u', 'login')")
-    assert db.migrate(p) == 2
+    assert db.migrate(p) == db.SCHEMA_VERSION
     with db.connection(p) as conn:
         assert conn.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM admin_actions").fetchone()[0] == 0

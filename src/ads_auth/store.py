@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ads_auth import hashing, policy
 from ads_auth.db import connection, from_iso, to_iso, utc_now
-from ads_auth.models import ROLES, User, normalize_username
+from ads_auth.models import ROLES, User, looks_like_email, normalize_email, normalize_username
 
 
 class LoginOutcome(Enum):
@@ -117,12 +117,15 @@ class UserStore:
         full_name: str | None = None,
         role: str = "user",
         temporary: bool = False,
+        email: str | None = None,
         now: datetime | None = None,
     ) -> tuple[User, str | None]:
         """Create a user. With `temporary=True` a random password is generated, returned once,
-        and must be changed within 90 days. Otherwise `password` must satisfy the policy."""
+        and must be changed within 90 days. Otherwise `password` must satisfy the policy.
+        `email` (for password-reset links) defaults to the username when the username is an address."""
         now = now or utc_now()
         name = normalize_username(username)
+        address = normalize_email(email) if email else (name if looks_like_email(name) else None)
         if role not in ROLES:
             raise StoreError(f"Role must be one of {', '.join(ROLES)}.")
         temp_password = None
@@ -137,9 +140,9 @@ class UserStore:
                 with conn:
                     conn.execute(
                         """INSERT INTO users(username, password_hash, full_name, role, is_active,
-                           must_change_password, temp_password_expires_utc, session_version, created_utc)
-                           VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?)""",
-                        (name, hashing.generate(password), full_name, role, int(temporary), expires, to_iso(now)),
+                           must_change_password, temp_password_expires_utc, session_version, created_utc, email)
+                           VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?, ?)""",
+                        (name, hashing.generate(password), full_name, role, int(temporary), expires, to_iso(now), address),
                     )
             except sqlite3.IntegrityError as exc:
                 raise StoreError(f"User '{name}' already exists.") from exc
@@ -233,18 +236,68 @@ class UserStore:
     def rename_user(self, username: str, new_username: str) -> User:
         """Change the sign-in name. Signs the account out everywhere (its sessions and cookies end);
         the password, role, and display name are unchanged. The account's usage events and any
-        lockout state move to the new name, so its history stays together. The admin log is left as
+        lockout state move to the new name, so its history stays together. An email that was the old
+        username follows it (or is removed if the new name is not an address). The admin log is left as
         written: it records the names as they were when each change was made."""
         user, new = self.check_rename(username, new_username)
         with connection(self.db_path) as conn:
             try:
                 with conn:
                     conn.execute("UPDATE users SET username=?, session_version=session_version+1 WHERE id=?", (new, user.id))
+                    if user.email and user.email == user.username:     # the email was the old username: it follows
+                        conn.execute("UPDATE users SET email=? WHERE id=?", (new if looks_like_email(new) else None, user.id))
                     conn.execute("UPDATE login_attempts SET username=? WHERE username=?", (new, user.username))
                     conn.execute("UPDATE usage_events SET username=? WHERE user_id=? AND username=?",
                                  (new, user.id, user.username))
             except sqlite3.IntegrityError as exc:
                 raise StoreError(f"User '{new}' already exists.") from exc
+        return self.get_by_id(user.id)
+
+    def set_email(self, username: str, email: str | None) -> User:
+        """Where password-reset links go; None or blank turns self-service reset off for the account."""
+        user = self._require(username)
+        address = normalize_email(email)
+        with connection(self.db_path) as conn, conn:
+            conn.execute("UPDATE users SET email=? WHERE id=?", (address, user.id))
+            if address != user.email:       # a link already sent to the old address stops working
+                conn.execute("UPDATE password_resets SET used_utc=? WHERE user_id=? AND used_utc IS NULL",
+                             (to_iso(utc_now()), user.id))
+        return self.get_by_id(user.id)
+
+    def find_for_reset(self, identifier: str) -> User | None:
+        """The active account a "Forgot your password?" request names, if it has an email address:
+        by username first, then by email when exactly one active account has that address."""
+        text = (identifier or "").strip()
+        if not text:
+            return None
+        try:
+            user = self.get_by_username(normalize_username(text))
+        except ValueError:
+            user = None
+        if user is None and looks_like_email(text.casefold()):
+            with connection(self.db_path) as conn:
+                rows = conn.execute("SELECT * FROM users WHERE email = ? AND is_active = 1",
+                                    (text.casefold(),)).fetchall()
+            user = User.from_row(rows[0]) if len(rows) == 1 else None
+        if user is None or not user.is_active or not user.email:
+            return None
+        return user
+
+    def set_password(self, user_id: int, new_password: str) -> User:
+        """A new password chosen by the person (the reset link): no temporary-password state,
+        every session signed out, lockout cleared. The caller has already proved who they are."""
+        hashing.validate_new_password(new_password)
+        user = self.get_by_id(user_id)
+        if user is None:
+            raise StoreError("User not found.")
+        with connection(self.db_path) as conn:
+            with conn:
+                conn.execute(
+                    """UPDATE users SET password_hash=?, must_change_password=0, temp_password_expires_utc=NULL,
+                       session_version=session_version+1 WHERE id=?""",
+                    (hashing.generate(new_password), user.id),
+                )
+            policy.clear_failures(conn, user.username)
         return self.get_by_id(user.id)
 
     def set_full_name(self, username: str, full_name: str | None) -> User:
@@ -314,9 +367,9 @@ class UserStore:
             with connection(self.db_path) as conn, conn:
                 conn.executemany(
                     """INSERT INTO users(username, password_hash, full_name, role, is_active,
-                       must_change_password, session_version, created_utc)
-                       VALUES (?, ?, ?, 'user', 1, 0, 1, ?)""",
-                    [(n, h, f, to_iso(now)) for n, h, f in to_insert],
+                       must_change_password, session_version, created_utc, email)
+                       VALUES (?, ?, ?, 'user', 1, 0, 1, ?, ?)""",
+                    [(n, h, f, to_iso(now), n if looks_like_email(n) else None) for n, h, f in to_insert],
                 )
             report.applied = True
         return report

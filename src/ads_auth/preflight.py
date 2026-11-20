@@ -39,5 +39,7 @@ def run(load_settings: Callable[[], AppSettings], *, out=print) -> int:
         return 5
     (settings.data_dir / LOCK_NAME).write_text(str(os.getpid()))
     remembered = "on" if settings.cookie_enabled else "off"
-    out(f"preflight: ok (auth={settings.auth_mode}, schema v{version}, data_dir={settings.data_dir}, stay_signed_in={remembered})")
+    reset = "on" if settings.password_reset_enabled else "off"
+    out(f"preflight: ok (auth={settings.auth_mode}, schema v{version}, data_dir={settings.data_dir}, "
+        f"stay_signed_in={remembered}, password_reset={reset})")
     return 0
