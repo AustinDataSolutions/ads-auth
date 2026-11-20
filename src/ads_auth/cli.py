@@ -7,6 +7,14 @@ An app's `manage.py` wraps `main()` with its own settings loader and any extra c
     sys.exit(cli.main(load_settings=load_settings, commands=MY_COMMANDS))
 
 Passwords are never accepted as arguments; they are prompted for or generated and shown once.
+
+An app that files data of its own under a username (a folder named after it, for example) passes
+`on_rename` too, so `rename-user` can move that data before the account changes name:
+
+    sys.exit(cli.main(load_settings=load_settings, on_rename=move_saved_sessions))
+
+`on_rename(settings, user, new_username)` runs after the rename is checked and before it is made.
+It may return a line to print. If it raises, the account keeps its old name.
 """
 from __future__ import annotations
 
@@ -18,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ads_auth import db, maintenance
-from ads_auth.models import ROLES
+from ads_auth.models import ROLES, User
 from ads_auth.settings import AppSettings
 from ads_auth.store import StoreError, UserStore
 from ads_auth.usage import events, reports
@@ -37,11 +45,15 @@ class Command:
     arguments: Callable[[argparse.ArgumentParser], None] | None = None
 
 
+RenameHook = Callable[[AppSettings, User, str], "str | None"]
+
+
 class Cli:
-    def __init__(self, settings: AppSettings, out=print, prompt=getpass.getpass):
+    def __init__(self, settings: AppSettings, out=print, prompt=getpass.getpass, on_rename: RenameHook | None = None):
         self.settings = settings
         self.out = out
         self.prompt = prompt
+        self.on_rename = on_rename
         self.store = UserStore(settings.db_path)
 
     # ---- helpers for app commands ----------------------------------------
@@ -84,6 +96,19 @@ class Cli:
     def set_name(self, a) -> int:
         user = self.store.set_full_name(a.username, a.full_name)
         self.out(f"{user.username}: display name set.")
+        return 0
+
+    def rename_user(self, a) -> int:
+        user, new = self.store.check_rename(a.username, a.new_username)
+        if self.on_rename is not None:
+            note = self.on_rename(self.settings, user, new)
+            if note:
+                self.out(note)
+        renamed = self.store.rename_user(user.username, new)
+        self.out(f"{user.username} renamed to {renamed.username}; sessions signed out. They sign in with the new "
+                 "username and their existing password. Their usage history moved to the new name.")
+        if user.username in self.settings.usage_exclude_users:
+            self.out(f"Note: {user.username} is in the excluded accounts setting; change it to {renamed.username} there.")
         return 0
 
     def deactivate_user(self, a) -> int:
@@ -187,6 +212,7 @@ def build_parser(prog: str = "manage.py", commands: Iterable[Command] = ()) -> a
     s = sub.add_parser("set-password"); s.add_argument("username")
     s = sub.add_parser("set-role"); s.add_argument("username"); s.add_argument("role", choices=ROLES)
     s = sub.add_parser("set-name"); s.add_argument("username"); s.add_argument("full_name")
+    s = sub.add_parser("rename-user", help="change a sign-in name; signs the account out"); s.add_argument("username"); s.add_argument("new_username")
     s = sub.add_parser("deactivate-user"); s.add_argument("username")
     s = sub.add_parser("reactivate-user"); s.add_argument("username")
     s = sub.add_parser("delete-user"); s.add_argument("username"); s.add_argument("--force", action="store_true")
@@ -213,6 +239,7 @@ def main(
     prompt=getpass.getpass,
     prog: str = "manage.py",
     commands: Iterable[Command] = (),
+    on_rename: RenameHook | None = None,
 ) -> int:
     """Parse `argv`, load settings with `load_settings(environ)`, migrate the database, run the command."""
     commands = tuple(commands)
@@ -221,7 +248,7 @@ def main(
     settings = load_settings(environ)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     db.migrate(settings.db_path)
-    cli = Cli(settings, out=out, prompt=prompt)
+    cli = Cli(settings, out=out, prompt=prompt, on_rename=on_rename)
     extra = {c.name: c.handler for c in commands}
     try:
         if args.command in extra:

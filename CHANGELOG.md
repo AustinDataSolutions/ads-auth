@@ -5,6 +5,25 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.9.0 (2026-11-20)
+
+Disclosure: unaffected. Nothing new is stored, logged, or sent. Renaming an account changes the
+name its usage events are filed under, which is the same account name the disclosures already
+describe.
+
+- `manage.py rename-user <username> <new_username>`: changes the sign-in name. The password, role,
+  and display name stay; the account is signed out everywhere (its sessions and sign-in cookies
+  end), so the person signs in again with the new name. Its usage events and any lockout state move
+  to the new name, so the Usage statistics tables and chart show one person, not two. The admin log
+  is left as written. If the old name is in `usage_exclude_users`, the command says to update it.
+- `UserStore.check_rename` and `UserStore.rename_user`.
+- **Apps with their own per-user data.** `cli.main(..., on_rename=hook)` and `Cli(on_rename=...)`:
+  `hook(settings, user, new_username)` runs after the rename is checked and before it is made, and
+  may return a line to print; if it raises, the account keeps its old name. An app that files data
+  under a username (Themes Explorer's saved sessions: the folder name and the encryption are both
+  tied to it) must pass one before telling operators to use `rename-user`; otherwise that data is
+  left under the old name, and a clean-up that removes data of unknown accounts would delete it.
+
 ## v1.8.0 (2026-11-20)
 
 Disclosure: unaffected in what is stored, logged, or sent. The chart now shows each account's

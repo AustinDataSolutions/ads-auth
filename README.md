@@ -55,9 +55,14 @@ tzdata (for time zones), Streamlit 1.52 or newer, and pandas. Its tests are run 
   valid, that sign-in has not been switched off on a hosted server, that the data folder can be
   written to, and that the database is up to date.
 - **A command line for operators.** There are commands to create an account, set a password, change
-  a role or a display name, deactivate or reactivate an account, delete an account, unlock an
-  account, list accounts, import accounts, back up or restore the database, remove old usage rows,
-  and export usage rows. An app can add commands of its own.
+  a role or a display name, change a username, deactivate or reactivate an account, delete an
+  account, unlock an account, list accounts, import accounts, back up or restore the database,
+  remove old usage rows, and export usage rows. An app can add commands of its own.
+  `rename-user <old> <new>` keeps the password, role, and display name, signs the account out, and
+  moves its usage history to the new name; the admin log keeps the names as they were. An app that
+  files data of its own under a username must pass `on_rename` to `cli.main` so the command can
+  move that data first (see the docstring of `ads_auth.cli`); without it, that data is left under
+  the old name.
 
 Everything except the Streamlit screens is plain Python. Those modules import no Streamlit and
 read or write no files when they are imported, so they can be tested without a running app.

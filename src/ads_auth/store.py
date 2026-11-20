@@ -219,6 +219,34 @@ class UserStore:
             conn.execute("DELETE FROM users WHERE id = ?", (user.id,))
         return user
 
+    def check_rename(self, username: str, new_username: str) -> tuple[User, str]:
+        """The account and the normalized new name, or StoreError/ValueError if the rename can't happen.
+        Lets a caller move app data filed under the old name before `rename_user` changes it."""
+        user = self._require(username)
+        new = normalize_username(new_username)
+        if new == user.username:
+            raise StoreError("The new username is the same as the current one.")
+        if self.get_by_username(new) is not None:
+            raise StoreError(f"User '{new}' already exists.")
+        return user, new
+
+    def rename_user(self, username: str, new_username: str) -> User:
+        """Change the sign-in name. Signs the account out everywhere (its sessions and cookies end);
+        the password, role, and display name are unchanged. The account's usage events and any
+        lockout state move to the new name, so its history stays together. The admin log is left as
+        written: it records the names as they were when each change was made."""
+        user, new = self.check_rename(username, new_username)
+        with connection(self.db_path) as conn:
+            try:
+                with conn:
+                    conn.execute("UPDATE users SET username=?, session_version=session_version+1 WHERE id=?", (new, user.id))
+                    conn.execute("UPDATE login_attempts SET username=? WHERE username=?", (new, user.username))
+                    conn.execute("UPDATE usage_events SET username=? WHERE user_id=? AND username=?",
+                                 (new, user.id, user.username))
+            except sqlite3.IntegrityError as exc:
+                raise StoreError(f"User '{new}' already exists.") from exc
+        return self.get_by_id(user.id)
+
     def set_full_name(self, username: str, full_name: str | None) -> User:
         user = self._require(username)
         with connection(self.db_path) as conn, conn:

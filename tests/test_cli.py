@@ -192,3 +192,45 @@ def test_app_commands_plug_in_and_share_the_lock_check(env):
     assert code == 0 and out.text == "wiped demo-app in data"
     with pytest.raises(SystemExit):
         run(["wipe"], env)                                       # unknown without the app's command list
+
+
+def test_rename_user_runs_the_apps_hook_first_and_notes_excluded_accounts(env):
+    run(["create-user", "ops-old", "--temporary"], env)
+    seen = []
+
+    def hook(settings, user, new_username):
+        seen.append((user.username, new_username))
+        return "Moved 2 saved sessions."
+    out = Out()
+    settings_with_exclusion = lambda environ: AppSettings(
+        app_name="demo-app", title="Demo", data_dir=Path(environ["DATA_DIR"]),
+        disclosure_path=Path(environ["DATA_DIR"]) / "d.md", usage_exclude_users=("ops-old",))
+    code = cli.main(["rename-user", "ops-old", "Ops-New"], load_settings=settings_with_exclusion, environ=env,
+                    out=out, on_rename=hook)
+    assert code == 0 and seen == [("ops-old", "ops-new")]
+    assert out.lines[0] == "Moved 2 saved sessions."
+    assert "ops-old renamed to ops-new; sessions signed out" in out.text
+    assert "change it to ops-new there" in out.text
+    assert UserStore(Path(env["DATA_DIR"]) / "app.db").get_by_username("ops-new") is not None
+
+
+def test_rename_user_checks_before_the_hook_and_a_failing_hook_keeps_the_old_name(env):
+    run(["create-user", "a", "--temporary"], env)
+    run(["create-user", "b", "--temporary"], env)
+    calls = []
+    code, out = (lambda o: (cli.main(["rename-user", "a", "b"], load_settings=load_settings, environ=env, out=o,
+                                     on_rename=lambda *args: calls.append(args)), o))(Out())
+    assert code == 1 and "already exists" in out.text and calls == []
+
+    def broken(settings, user, new_username):
+        raise ValueError("could not move saved sessions")
+    out = Out()
+    code = cli.main(["rename-user", "a", "c"], load_settings=load_settings, environ=env, out=out, on_rename=broken)
+    assert code == 1 and out.text == "Error: could not move saved sessions"
+    assert UserStore(Path(env["DATA_DIR"]) / "app.db").get_by_username("a") is not None
+
+
+def test_rename_user_without_a_hook(env):
+    run(["create-user", "a", "--temporary"], env)
+    code, out = run(["rename-user", "a", "z"], env)
+    assert code == 0 and out.text.startswith("a renamed to z;") and "excluded" not in out.text

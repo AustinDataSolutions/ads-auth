@@ -237,3 +237,39 @@ def test_delete_user_keeps_events_and_protects_last_admin(tmp_path):
     import pytest
     with pytest.raises(StoreError):
         store.delete_user("root")
+
+
+def test_rename_keeps_password_and_history_and_signs_out(store):
+    from ads_auth.usage import events
+    user, _ = store.create_user("old.name", password=PW, full_name="Pat", role="manager")
+    other, _ = store.create_user("someone", password=PW)
+    for _ in range(2):
+        store.verify_login("old.name", "wrong-password-x")
+    with db.connection(store.db_path) as conn:
+        events.log_event(conn, "login", user=user)
+        events.log_event(conn, "login", user=other)
+        events.log_event(conn, "login_failed", user=None)
+    renamed = store.rename_user(" Old.Name ", "New.Name")
+    assert renamed.id == user.id and renamed.username == "new.name"
+    assert (renamed.role, renamed.full_name) == ("manager", "Pat")
+    assert renamed.session_version == user.session_version + 1          # every session and cookie ends
+    assert store.get_by_username("old.name") is None
+    assert store.verify_login("new.name", PW)[1] is LoginOutcome.SUCCESS
+    with db.connection(store.db_path) as conn:
+        names = sorted((r[0] or "") for r in conn.execute("SELECT username FROM usage_events"))
+        attempts = {r[0] for r in conn.execute("SELECT username FROM login_attempts")}
+    assert names == ["", "new.name", "someone"] and attempts <= {"new.name"}
+
+
+def test_rename_refuses_a_taken_same_bad_or_unknown_name(store):
+    store.create_user("a", password=PW)
+    store.create_user("b", password=PW)
+    with pytest.raises(StoreError, match="already exists"):
+        store.rename_user("a", "B")
+    with pytest.raises(StoreError, match="same as the current"):
+        store.rename_user("a", " A ")
+    with pytest.raises(ValueError):
+        store.rename_user("a", "has space")
+    with pytest.raises(StoreError, match="not found"):
+        store.rename_user("nobody", "c")
+    assert store.get_by_username("a") is not None
