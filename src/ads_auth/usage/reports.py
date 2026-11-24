@@ -33,7 +33,7 @@ def aggregate_header(events: Sequence[str] = ()) -> list[str]:
 
 
 def per_user_header(events: Sequence[str] = ()) -> list[str]:
-    return ["username", "logins", *events]
+    return ["username", "logins", *events, "last_login", "last_activity"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,13 @@ class UserRow:
     username: str
     logins: int
     counts: Mapping[str, int]   # one entry per declared app event, in declared order
+    last_login: date | None = None      # most recent sign-in on record, any date (local); None: none stored
+    last_activity: date | None = None   # most recent sign-in or counted event on record, any date (local)
+
+    @property
+    def total(self) -> int:
+        """Sign-ins plus every counted event in the range."""
+        return self.logins + sum(self.counts.values())
 
 
 def _count(rows, events: Sequence[str]) -> Mapping[str, int]:
@@ -143,7 +150,7 @@ def activity_by_user_by_week(
 
     Activity is the same set that makes an account active: every sign-in plus every event in
     `activity` (None: all of `events`). Returns the week starts (Mondays, oldest first) and, for every
-    account with activity in those weeks, its count per week in the same order, by username.
+    account with activity in those weeks, its count per week in the same order, busiest account first.
     """
     return _by_user_by_week(conn, start, end, exclude, _activity(events, activity), weeks)
 
@@ -165,20 +172,53 @@ def _by_user_by_week(conn, start: date, end: date, exclude, names, weeks: int) -
         week = week_start(local_date(r["ts_utc"]))
         if week in index:
             series.setdefault(r["username"], [0] * len(periods))[index[week]] += 1
-    return [p_start for p_start, _ in periods], dict(sorted(series.items()))
+    # Busiest account first (ties by username), so a legend reads from most to least active
+    ordered = sorted(series.items(), key=lambda item: (-sum(item[1]), item[0]))
+    return [p_start for p_start, _ in periods], dict(ordered)
+
+
+def event_usernames(conn: sqlite3.Connection) -> list[str]:
+    """Every account name with a stored event, sorted. Includes accounts deleted since: history keeps the name."""
+    rows = conn.execute("SELECT DISTINCT username FROM usage_events WHERE username IS NOT NULL ORDER BY username").fetchall()
+    return [r["username"] for r in rows]
+
+
+def last_seen(conn: sqlite3.Connection, names) -> dict[str, tuple[date | None, date | None]]:
+    """For each account: the local date of its most recent sign-in and of its most recent activity
+    (`names`: the events that count as activity), over every stored event, whatever the date range."""
+    seen: dict[str, tuple[date | None, date | None]] = {}
+    rows = conn.execute(
+        "SELECT username, event, MAX(ts_utc) AS ts FROM usage_events WHERE username IS NOT NULL GROUP BY username, event"
+    ).fetchall()
+    for r in rows:
+        if r["event"] not in names:
+            continue
+        day = local_date(r["ts"])
+        login, active = seen.get(r["username"], (None, None))
+        if r["event"] == "login":
+            login = day
+        seen[r["username"]] = (login, day if active is None or day > active else active)
+    return seen
 
 
 def per_user_totals(conn: sqlite3.Connection, start: date, end: date, exclude=None, *, events: Sequence[str] = ()) -> list[UserRow]:
-    """Logins and one count per declared event for every named account with events in [start, end], sorted by username."""
+    """Logins and one count per declared event for every named account with a sign-in or a counted
+    event in [start, end], busiest first (ties by username). An account whose only rows in the range
+    are ones that are never counted (a failed sign-in, a sign-out, a password reset) is left out.
+
+    `last_login` and `last_activity` look at every stored event, not just the range."""
+    counted = {"login", *events}
     by_user: dict[str, list] = {}
     for r in _fetch(conn, start, end, exclude):
-        if r["username"] is None:
+        if r["username"] is None or r["event"] not in counted:
             continue
         by_user.setdefault(r["username"], []).append(r)
-    return [
-        UserRow(u, sum(1 for r in rs if r["event"] == "login"), _count(rs, events))
-        for u, rs in sorted(by_user.items())
+    seen = last_seen(conn, counted)
+    rows = [
+        UserRow(u, sum(1 for r in rs if r["event"] == "login"), _count(rs, events), *seen.get(u, (None, None)))
+        for u, rs in by_user.items()
     ]
+    return sorted(rows, key=lambda row: (-row.total, row.username))
 
 
 def _csv(header: list[str], rows) -> str:
@@ -189,10 +229,15 @@ def _csv(header: list[str], rows) -> str:
     return buf.getvalue()
 
 
-def combined_events_rows(conn: sqlite3.Connection, app_name: str, exclude=None) -> list[tuple]:
-    """(ts_utc, app, username, event) for every stored event, oldest first, excluded accounts left out."""
+def combined_events_rows(conn: sqlite3.Connection, app_name: str, exclude=None, *,
+                         start: date | None = None, end: date | None = None) -> list[tuple]:
+    """(ts_utc, app, username, event) for stored events, oldest first, excluded accounts left out.
+
+    With `start` and `end`, only events whose Eastern date falls in [start, end]; without, every stored event."""
     excluded = set(exclude or ())
     rows = conn.execute("SELECT ts_utc, username, event FROM usage_events ORDER BY ts_utc, id").fetchall()
+    if start is not None and end is not None:
+        rows = [r for r in rows if start <= local_date(r["ts_utc"]) <= end]
     return [(r["ts_utc"], app_name, r["username"] or "", r["event"]) for r in rows if r["username"] not in excluded]
 
 
@@ -205,9 +250,19 @@ def aggregate_rows(rows: list[PeriodRow], events: Sequence[str] = ()) -> list[tu
     ]
 
 
+def period_header(events: Sequence[str] = ()) -> list[str]:
+    """`aggregate_header` without `period_type`, for a sheet that holds one kind of period."""
+    return aggregate_header(events)[1:]
+
+
+def period_rows(rows: list[PeriodRow], events: Sequence[str] = ()) -> list[tuple]:
+    """One tuple per period in `period_header(events)` order, in the order given."""
+    return [row[1:] for row in aggregate_rows(rows, events)]
+
+
 def per_user_rows(rows: list[UserRow], events: Sequence[str] = ()) -> list[tuple]:
     """One tuple per account in `per_user_header(events)` order."""
-    return [(r.username, r.logins, *(r.counts.get(name, 0) for name in events)) for r in rows]
+    return [(r.username, r.logins, *(r.counts.get(name, 0) for name in events), r.last_login, r.last_activity) for r in rows]
 
 
 def _iso(rows):
@@ -228,8 +283,8 @@ def aggregate_csv(rows: list[PeriodRow], events: Sequence[str] = ()) -> str:
 
 
 def per_user_csv(rows: list[UserRow], events: Sequence[str] = ()) -> str:
-    """Header `username,logins,<one column per event>`."""
-    return _csv(per_user_header(events), per_user_rows(rows, events))
+    """Header `username,logins,<one column per event>,last_login,last_activity`."""
+    return _csv(per_user_header(events), _iso(per_user_rows(rows, events)))
 
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -266,14 +321,21 @@ def _fill(sheet, header: Sequence[str], rows) -> None:
 def xlsx_workbook(header: Sequence[str], rows, about: Sequence[tuple[str, str]]) -> bytes:
     """A two-sheet workbook: `Data` holds `header` and `rows` (the same columns as the CSV), and
     `About this report` holds the `about` (field, value) pairs that say where the figures came from."""
+    return xlsx_sheets([(DATA_SHEET, header, rows)], about)
+
+
+def xlsx_sheets(sheets: Sequence[tuple[str, Sequence[str], object]], about: Sequence[tuple[str, str]]) -> bytes:
+    """A workbook with one data sheet per (title, header, rows), each with a frozen header row and
+    its own filter, followed by `About this report`."""
     from openpyxl import Workbook
 
     book = Workbook()
-    data = book.active
-    data.title = DATA_SHEET
-    _fill(data, list(header), list(rows))
-    if data.max_row > 1:
-        data.auto_filter.ref = data.dimensions
+    book.remove(book.active)
+    for title, header, rows in sheets:
+        data = book.create_sheet(title)
+        _fill(data, list(header), list(rows))
+        if data.max_row > 1:
+            data.auto_filter.ref = data.dimensions
     _fill(book.create_sheet(ABOUT_SHEET), ["Field", "Value"], list(about))
     buf = io.BytesIO()
     book.save(buf)

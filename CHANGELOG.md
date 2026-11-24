@@ -5,6 +5,39 @@ what consuming apps store, log, transmit, or retain; each app must update its ow
 document (`DATA_HANDLING.md` or equivalent) in the same commit that bumps to that release.
 Entries without the marker need no disclosure change.
 
+## v1.11.0 (2026-11-24)
+
+Disclosure: unaffected. Nothing new is stored, logged, or sent; the Usage statistics page reads the
+same rows and shows them differently.
+
+- **The date range says what it covers.** A line under the filters reads "Showing Nov 10, 2026 to
+  Nov 24, 2026 (15 days, Eastern time). Every chart, table and download below covers these dates",
+  with the accounts left out. The From and To boxes read month/day/year (`MM/DD/YYYY`; they were
+  `YYYY/MM/DD`, and a date typed the American way was refused without a word), carry a hint, and
+  their calendars ring today's date (`reports.today_css`).
+- **Every download follows the date range**, the event log included; it used to hold every stored
+  event whatever the range. `combined_events_rows` takes optional `start` and `end`.
+- **Downloads renamed**: "Aggregates" is **Activity by period** (`usage-by-period-<date>.xlsx`),
+  "Per user" is **Activity by user** (`usage-by-user-<date>.xlsx`), "All events" is **Event log**
+  (file name unchanged). Each button has a hint and a caption under them says what each file holds.
+  Activity by period has one sheet each for **Daily**, **Weekly** and **Monthly**, newest first,
+  without the `period_type` column, so each sorts and filters alone (`reports.xlsx_sheets`,
+  `period_header`, `period_rows`).
+- **Activity by user** has **Last activity** (the table and the download) and **Last login** (the
+  download only): the most recent on record for the account, whatever the range (`last_login`,
+  `last_activity` in the file; `UserRow.last_login`, `.last_activity`, `.total`; `reports.last_seen`). Rows are the
+  busiest account first. An account whose only rows in the range are never counted (a failed
+  sign-in, a sign-out, a password reset) is no longer listed with a row of zeros.
+- **Weekly activity chart**: the legend is drawn under the plot as a centred, wrapping row, every
+  name in full, busiest account first (colours follow that order; more than eight accounts use a
+  twenty-colour set). Drawn with Altair (`reports.weekly_chart`, `legend_html`, `series_colors`;
+  `st.altair_chart`) instead of `st.line_chart`, and still zooms the dates on scroll, pans on drag
+  and resets on double-click. A range of 13 weeks or fewer gets one tick and one dot per week, so a
+  single week shows something.
+- **Exclude accounts** lists deleted accounts that still have history (`reports.event_usernames`),
+  so their activity can be left out.
+- **Daily, weekly and monthly active users** are three tabs under one "Active users" heading.
+
 ## v1.10.0 (2026-11-20)
 
 Disclosure: affected. Self-service password reset. When an app sets `mail` and `public_url`:

@@ -86,8 +86,11 @@ def test_per_user_totals_and_csv(conn):
     assert [(r.username, r.logins, dict(r.counts)) for r in rows] == [
         ("a@example.org", 1, {"search": 2, "upload": 0}), ("b@example.org", 0, {"search": 0, "upload": 1}),
     ]
-    assert reports.per_user_csv(rows, EVENTS) == "username,logins,search,upload\na@example.org,1,2,0\nb@example.org,0,0,1\n"
-    assert reports.per_user_csv(rows) == "username,logins\na@example.org,1\nb@example.org,0\n"
+    assert reports.per_user_csv(rows, EVENTS) == (
+        "username,logins,search,upload,last_login,last_activity\n"
+        "a@example.org,1,2,0,2026-10-15,2026-10-15\nb@example.org,0,0,1,,2026-10-15\n")
+    assert reports.per_user_csv(rows) == (
+        "username,logins,last_login,last_activity\na@example.org,1,2026-10-15,2026-10-15\nb@example.org,0,,2026-10-15\n")
 
 
 def test_combined_csv_matches_the_shared_export_contract(conn):
@@ -172,8 +175,8 @@ def test_xlsx_workbook_has_data_and_about_sheets_and_never_writes_formulas():
 
 def test_per_user_rows_feed_csv_and_xlsx_alike():
     rows = [reports.UserRow("=cmd", 1, {"search": 2})]
-    assert reports.per_user_rows(rows, ("search",)) == [("=cmd", 1, 2)]
-    assert reports.per_user_csv(rows, ("search",)) == "username,logins,search\n=cmd,1,2\n"
+    assert reports.per_user_rows(rows, ("search",)) == [("=cmd", 1, 2, None, None)]
+    assert reports.per_user_csv(rows, ("search",)) == "username,logins,search,last_login,last_activity\n=cmd,1,2,,\n"
 
 
 def test_logins_by_user_by_week_keeps_the_most_recent_weeks_only(conn):
@@ -207,3 +210,38 @@ def test_activity_by_user_by_week_counts_sign_ins_and_the_apps_activity_events(c
     assert reports.activity_by_user_by_week(*span, events=names, activity=("upload",))[1] == {"ana": [2]}
     assert reports.activity_by_user_by_week(*span)[1] == reports.logins_by_user_by_week(*span)[1] == {"ana": [1]}
     assert reports.activity_by_user_by_week(*span, events=names, exclude={"ana"})[1] == {}
+
+
+def test_per_user_totals_leave_out_accounts_with_nothing_counted_and_put_the_busiest_first(conn):
+    """A failed sign-in, a sign-out or a password reset in the range is not activity: the account is not listed."""
+    log(conn, "login", user=A, now=T0)
+    for _ in range(3):
+        log(conn, "search", user=B, now=T0)
+    quiet = _user(3, "quiet@example.org")
+    log(conn, "login", user=quiet, now=datetime(2026, 9, 1, 12, tzinfo=timezone.utc))        # before the range
+    for event in ("login_failed", "logout", "reset_link_sent", "password_reset"):
+        log(conn, event, user=quiet, now=T0)
+    rows = reports.per_user_totals(conn, date(2026, 10, 1), date(2026, 10, 31), events=EVENTS)
+    assert [(r.username, r.total) for r in rows] == [("b@example.org", 3), ("a@example.org", 1)]
+    assert [(r.last_login, r.last_activity) for r in rows] == [(None, date(2026, 10, 15)), (date(2026, 10, 15), date(2026, 10, 15))]
+    # In a range that holds its sign-in the quiet account is listed, and a later sign-out is not its last activity
+    (row,) = reports.per_user_totals(conn, date(2026, 9, 1), date(2026, 9, 30), events=EVENTS)
+    assert (row.username, row.last_login, row.last_activity) == ("quiet@example.org", date(2026, 9, 1), date(2026, 9, 1))
+
+
+def test_weekly_series_come_busiest_first(conn):
+    log(conn, "login", user=A, now=T0)
+    for _ in range(2):
+        log(conn, "login", user=B, now=T0)
+    _, series = reports.logins_by_user_by_week(conn, date(2026, 10, 12), date(2026, 10, 18))
+    assert list(series) == ["b@example.org", "a@example.org"]
+
+
+def test_event_usernames_and_ranged_event_rows(conn):
+    log(conn, "login", user=B, now=T0)
+    log(conn, "login", user=A, now=datetime(2026, 11, 1, 3, 30, tzinfo=timezone.utc))   # still Oct 31 in Eastern time
+    log(conn, "login_failed", now=T0)
+    assert reports.event_usernames(conn) == ["a@example.org", "b@example.org"]
+    assert len(reports.combined_events_rows(conn, "x")) == 3
+    in_october = reports.combined_events_rows(conn, "x", start=date(2026, 10, 16), end=date(2026, 10, 31))
+    assert [row[2] for row in in_october] == ["a@example.org"]
